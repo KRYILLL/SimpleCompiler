@@ -4,9 +4,6 @@
 #include <string.h>
 #include "tac.h"
 
-
-int current_decl_dtype;
-
 int yylex();
 void yyerror(char* msg);
 
@@ -21,9 +18,8 @@ void yyerror(char* msg);
 	EXP	*exp;
 }
 
-%token INT CHAR EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN
+%token INT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN
 %token <string> INTEGER IDENTIFIER TEXT
-%token <character> CHARCONST
 
 %left EQ NE LT LE GT GE
 %left '+' '-'
@@ -54,11 +50,7 @@ function_declaration : function
 | declaration
 ;
 
-type : INT{ current_decl_dtype = DTYPE_INT; }
-| CHAR{ current_decl_dtype = DTYPE_CHAR; }
-;
-
-declaration : type variable_list ';'
+declaration : INT variable_list ';'
 {
 	$$=$2;
 }
@@ -66,11 +58,11 @@ declaration : type variable_list ';'
 
 variable_list : IDENTIFIER
 {
-	$$=declare_var_with_type(current_decl_dtype, $1);
+	$$=declare_var($1);
 }               
 | variable_list ',' IDENTIFIER
 {
-	$$=join_tac($1, declare_var_with_type(current_decl_dtype, $3));
+	$$=join_tac($1, declare_var($3));
 }               
 ;
 
@@ -95,13 +87,13 @@ function_head : IDENTIFIER
 }
 ;
 
-parameter_list : type IDENTIFIER
+parameter_list : IDENTIFIER
 {
-	$$=declare_para(current_decl_dtype, $2);
+	$$=declare_para($1);
 }               
-| parameter_list ',' type IDENTIFIER
+| parameter_list ',' IDENTIFIER
 {
-	$$=join_tac($1, declare_para(current_decl_dtype, $4));
+	$$=join_tac($1, declare_para($3));
 }               
 |
 {
@@ -203,11 +195,7 @@ expression : expression '+' expression
 }               
 | INTEGER
 {
-	$$=mk_exp(NULL, mk_int_const(atoi($1)), NULL);
-}
-| CHARCONST
-{
-	$$=mk_exp(NULL, mk_char_const($1), NULL);
+	$$=mk_exp(NULL, mk_const(atoi($1)), NULL);
 }
 | IDENTIFIER
 {

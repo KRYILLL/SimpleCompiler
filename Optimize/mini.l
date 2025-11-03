@@ -9,8 +9,6 @@
 
 "int"  {  return INT;  }
 
-"char"  {  return CHAR;  }
-
 "input"  {  return INPUT;  }
 
 "output"  {  return OUTPUT;  }
@@ -32,27 +30,6 @@
 	yylval.string = strdup(yytext); 
 	return INTEGER;
 }
-
-\'(\\.|[^\\\n])\' {
-   char c;
-    if (yytext[1] == '\\') {
-        switch (yytext[2]) {
-            case 'n': c = '\n'; break;
-            case 't': c = '\t'; break;
-            case 'r': c = '\r'; break;
-            case '0': c = '\0'; break;
-            case '\\': c = '\\'; break;
-            case '\'': c = '\''; break;
-            case '\"': c = '\"'; break;
-            default: c = yytext[2]; break;
-        }
-    } else {
-        c = yytext[1];
-    }
-    yylval.character = c;
-    return CHARCONST;
-}
-
 
 \"[^\"]*\"  {
 	yylval.string = strdup(yytext); 

@@ -60,7 +60,7 @@ SYM *mk_sym(void)
 	return t;
 }
 
-SYM *mk_var_with_type(int dtype, char *name)
+SYM *mk_var(char *name)
 {
 	SYM *sym=NULL;
 
@@ -81,9 +81,6 @@ SYM *mk_var_with_type(int dtype, char *name)
 	sym->type=SYM_VAR;
 	sym->name=name;
 	sym->offset=-1; /* Unset address */
-    /* default data type and size (may be overridden by declare helpers) */
-    sym->dtype = dtype;
-    sym->size = (sym->dtype == DTYPE_CHAR) ? SIZE_CHAR : SIZE_INT;
 
 	if(scope)  
 		insert_sym(&sym_tab_local,sym);
@@ -109,34 +106,9 @@ TAC *join_tac(TAC *c1, TAC *c2)
 	return c2;
 }
 
-TAC *declare_var_with_type(int dtype, char *name)
+TAC *declare_var(char *name)
 {
-	SYM *s = mk_var_with_type(dtype,name);
-	if (s) {
-		s->dtype = dtype;
-		s->size = (dtype == DTYPE_CHAR) ? SIZE_CHAR : SIZE_INT;
-	}
-	return mk_tac(TAC_VAR, s, NULL, NULL);
-}
-
-SYM *mk_char_const(int c)
-{
-	SYM *sym = NULL;
-	char name[16];
-	sprintf(name, "c%d", c); /* key for char constants */
-
-	sym = lookup_sym(sym_tab_global, name);
-	if (sym != NULL) return sym;
-
-	sym = mk_sym();
-	sym->type = SYM_CHAR; /* keep as numeric literal category */
-	sym->value = c;
-	sym->name = strdup(name);
-	sym->dtype = DTYPE_CHAR;
-	sym->size = SIZE_CHAR;
-	insert_sym(&sym_tab_global, sym);
-
-	return sym;
+	return mk_tac(TAC_VAR,mk_var(name),NULL,NULL);
 }
 
 TAC *mk_tac(int op, SYM *a, SYM *b, SYM *c)
@@ -189,12 +161,12 @@ SYM *mk_tmp(void)
 
 	name=malloc(12);
 	sprintf(name, "t%d", next_tmp++); /* Set up text */
-	return mk_var_with_type(DTYPE_INT,name);
+	return mk_var(name);
 }
 
-TAC *declare_para(int dtype, char *name)
+TAC *declare_para(char *name)
 {
-	return mk_tac(TAC_FORMAL,mk_var_with_type(dtype, name),NULL,NULL);
+	return mk_tac(TAC_FORMAL,mk_var(name),NULL,NULL);
 }
 
 SYM *declare_func(char *name)
@@ -292,7 +264,7 @@ EXP *do_bin( int binop, EXP *exp1, EXP *exp2)
 			break;
 		}
 
-		exp1->ret=mk_int_const(newval);
+		exp1->ret=mk_const(newval);
 
 		return exp1;
 	}
@@ -498,7 +470,7 @@ SYM *mk_text(char *text)
 	return sym;
 }
 
-SYM *mk_int_const(int n)
+SYM *mk_const(int n)
 {
 	SYM *sym=NULL;
 
@@ -515,8 +487,6 @@ SYM *mk_int_const(int n)
 	sym->type=SYM_INT;
 	sym->value=n;
 	sym->name=strdup(name);
-		sym->dtype = DTYPE_INT;
-		sym->size = SIZE_INT;
 	insert_sym(&sym_tab_global,sym);
 
 	return sym;
@@ -540,11 +510,7 @@ char *to_str(SYM *s, char *str)
 
 		case SYM_INT:
 		/* Convert the number to string */
-			sprintf(str, "%d", s->value);
-		return str;
-
-		case SYM_CHAR:
-		sprintf(str, "'%c'", (char)s->value);
+		sprintf(str, "%d", s->value);
 		return str;
 
 		default:

@@ -5,7 +5,6 @@
 #define SYM_TEXT 3
 #define SYM_INT 4
 #define SYM_LABEL 5
-#define SYM_CHAR 6
 
 /* type of tac */ 
 #define TAC_UNDEF 0 /* undefine */
@@ -33,10 +32,7 @@
 #define TAC_RETURN 22 /* return a */
 #define TAC_INPUT 23 /* input a */
 #define TAC_OUTPUT 24 /* output a */
-#define DTYPE_INT 0
-#define DTYPE_CHAR 1
-#define SIZE_INT 4
-#define SIZE_CHAR 1
+
 typedef struct sym
 {
 	/*	
@@ -56,9 +52,6 @@ typedef struct sym
 	struct tac *address; /* SYM_FUNC */	
 	struct sym *next;
 	void *etc;
-
-	int dtype; /* DTYPE_INT / DTYPE_CHAR */
-	int size; /* bytes: SIZE_INT / SIZE_CHAR */
 } SYM;
 
 typedef struct tac
@@ -95,16 +88,15 @@ void out_sym(FILE *f, SYM *s);
 void out_tac(FILE *f, TAC *i);
 SYM *mk_label(char *name);
 SYM *mk_tmp(void);
-SYM *mk_int_const(int n);
-SYM *mk_char_const(int n);
+SYM *mk_const(int n);
 SYM *mk_text(char *text);
 TAC *mk_tac(int op, SYM *a, SYM *b, SYM *c);
 EXP *mk_exp(EXP *next, SYM *ret, TAC *code);
 char *mk_lstr(int i);
 SYM *get_var(char *name); 
 SYM *declare_func(char *name);
-TAC *declare_var_with_type(int dtype, char *name);
-TAC *declare_para(int dtype, char *name);
+TAC *declare_var(char *name);
+TAC *declare_para(char *name);
 TAC *do_func(SYM *name,    TAC *args, TAC *code);
 TAC *do_assign(SYM *var, EXP *exp);
 TAC *do_output(SYM *var);

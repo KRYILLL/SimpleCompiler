@@ -40,18 +40,12 @@ void asm_write_back(int r)
 	{
 		if(rdesc[r].var->scope==1) /* local var */
 		{
-			if (rdesc[r].var->size == SIZE_CHAR)
-				out_str(file_s, "	STC (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
-			else
-				out_str(file_s, "	STO (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
+			out_str(file_s, "	STO (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
 		}
 		else /* global var */
 		{
 			out_str(file_s, "	LOD R%u,STATIC\n", R_TP);
-			if (rdesc[r].var->size == SIZE_CHAR)
-				out_str(file_s, "	STC (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
-			else
-				out_str(file_s, "	STO (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
+			out_str(file_s, "	STO (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
 		}
 		rdesc[r].mod=UNMODIFIED;
 	}
@@ -83,21 +77,13 @@ void asm_load(int r, SYM *s)
 		case SYM_VAR:
 		if(s->scope==1) /* local var */
 		{
-			if (s->size == SIZE_CHAR) {
-				if((s->offset)>=0) out_str(file_s, "	LDC R%u,(R%u+%d)\n", r, R_BP, s->offset);
-				else out_str(file_s, "	LDC R%u,(R%u-%d)\n", r, R_BP, -(s->offset));
-			} else {
-				if((s->offset)>=0) out_str(file_s, "	LOD R%u,(R%u+%d)\n", r, R_BP, s->offset);
-				else out_str(file_s, "	LOD R%u,(R%u-%d)\n", r, R_BP, -(s->offset));
-			}
+			if((s->offset)>=0) out_str(file_s, "	LOD R%u,(R%u+%d)\n", r, R_BP, s->offset);
+			else out_str(file_s, "	LOD R%u,(R%u-%d)\n", r, R_BP, -(s->offset));
 		}
 		else /* global var */
 		{
 			out_str(file_s, "	LOD R%u,STATIC\n", R_TP);
-			if (s->size == SIZE_CHAR)
-				out_str(file_s, "	LDC R%u,(R%u+%d)\n", r, R_TP, s->offset);
-			else
-				out_str(file_s, "	LOD R%u,(R%u+%d)\n", r, R_TP, s->offset);
+			out_str(file_s, "	LOD R%u,(R%u+%d)\n", r, R_TP, s->offset);
 		}
 		break;
 
@@ -394,7 +380,7 @@ void asm_code(TAC *c)
 		return;
 
 		case TAC_NEG:
-		asm_bin("SUB", c->a, mk_int_const(0), c->b);
+		asm_bin("SUB", c->a, mk_const(0), c->b);
 		return;
 
 		case TAC_EQ:
@@ -449,8 +435,7 @@ void asm_code(TAC *c)
 		case TAC_ACTUAL:
 		r=reg_alloc(c->a);
 		out_str(file_s, "	STO (R2+%d),R%u\n", tof+oon, r);
-		/* increase offset by argument size */
-		if (c->a != NULL) oon += c->a->size; else oon += SIZE_INT;
+		oon += 4;
 		return;
 
 		case TAC_CALL:
@@ -468,8 +453,7 @@ void asm_code(TAC *c)
 		case TAC_FORMAL:
 		c->a->scope=1; /* parameter is special local var */
 		c->a->offset=oof;
-		/* reserve space according to declared size */
-		oof -= c->a->size;
+		oof -=4;
 		return;
 
 		case TAC_VAR:
@@ -477,15 +461,13 @@ void asm_code(TAC *c)
 		{
 			c->a->scope=1; /* local var */
 			c->a->offset=tof;
-			/* allocate according to symbol size */
-			tof += c->a->size;
+			tof +=4;
 		}
 		else
 		{
 			c->a->scope=0; /* global var */
 			c->a->offset=tos;
-			/* allocate according to symbol size */
-			tos += c->a->size;
+			tos +=4;
 		}
 		return;
 
