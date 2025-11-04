@@ -80,6 +80,10 @@ void asm_load(int r, SYM *s)
 		out_str(file_s, "	LOD R%u,%u\n", r, s->value);
 		break;
 
+		case SYM_CHAR:
+		out_str(file_s, "\tLOD R%u,%u\n", r, s->value);
+		break;
+
 		case SYM_VAR:
 		if(s->scope==1) /* local var */
 		{
@@ -419,16 +423,24 @@ void asm_code(TAC *c)
 		return;
 
 		case TAC_OUTPUT:
-		if(c->a->type == SYM_VAR)
+		/* Output: handle text, char and int (default) -- ensure register is allocated before use */
+		if(c->a->type == SYM_TEXT)
 		{
-			r=reg_alloc(c->a);
-			out_str(file_s, "	LOD R15,R%u\n", r);
-			out_str(file_s, "	OTI\n");
-		} else if(c->a->type == SYM_TEXT)
+			r = reg_alloc(c->a);
+			out_str(file_s, "\tLOD R15,R%u\n", r);
+			out_str(file_s, "\tOTS\n");
+		}
+		else if (c->a->size == SIZE_CHAR)
 		{
-			r=reg_alloc(c->a);
-			out_str(file_s, "	LOD R15,R%u\n", r);
-			out_str(file_s, "	OTS\n");
+			r = reg_alloc(c->a);
+			out_str(file_s, "\tLOD R15,R%u\n", r);
+			out_str(file_s, "\tOTC\n");
+		}
+		else
+		{
+			r = reg_alloc(c->a);
+			out_str(file_s, "\tLOD R15,R%u\n", r);
+			out_str(file_s, "\tOTI\n");
 		}
 		return;
 

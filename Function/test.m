@@ -4,8 +4,7 @@ main()
 	char a;
 	char b;
 
-	c = 'a';
-	output c;
+	input c;
 
 	a = 'a';
 	b = 'b';

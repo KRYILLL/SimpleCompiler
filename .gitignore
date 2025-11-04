@@ -84,6 +84,9 @@ mini
 asm
 machine
 
+# Ignore test input files
+*.m
+
 # Make and build artifacts
 *.tmp
 *.log
