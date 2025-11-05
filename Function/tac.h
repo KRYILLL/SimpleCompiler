@@ -33,8 +33,12 @@
 #define TAC_RETURN 22 /* return a */
 #define TAC_INPUT 23 /* input a */
 #define TAC_OUTPUT 24 /* output a */
+#define TAC_ADDR 25 /* a=&b */
+#define TAC_LOAD 26 /* a=*b */
+#define TAC_STORE 27 /* *a=b */
 #define DTYPE_INT 0
 #define DTYPE_CHAR 1
+#define DTYPE_PTR 2
 #define SIZE_INT 4
 #define SIZE_CHAR 1
 typedef struct sym
@@ -59,6 +63,8 @@ typedef struct sym
 
 	int dtype; /* DTYPE_INT / DTYPE_CHAR */
 	int size; /* bytes: SIZE_INT / SIZE_CHAR */
+	int is_ptr;      /* 1 if this symbol is a pointer */
+	int base_dtype;  /* if pointer, what's the base dtype (DTYPE_INT/DTYPE_CHAR) */
 } SYM;
 
 typedef struct tac
@@ -95,6 +101,7 @@ void out_sym(FILE *f, SYM *s);
 void out_tac(FILE *f, TAC *i);
 SYM *mk_label(char *name);
 SYM *mk_tmp(void);
+SYM *mk_tmp_with(int dtype, int size, int is_ptr, int base_dtype);
 SYM *mk_int_const(int n);
 SYM *mk_char_const(int n);
 SYM *mk_text(char *text);
@@ -104,7 +111,9 @@ char *mk_lstr(int i);
 SYM *get_var(char *name); 
 SYM *declare_func(char *name);
 TAC *declare_var_with_type(int dtype, char *name);
+TAC *declare_ptr_var(int base_dtype, char *name);
 TAC *declare_para(int dtype, char *name);
+TAC *declare_para_ptr(int base_dtype, char *name);
 TAC *do_func(SYM *name,    TAC *args, TAC *code);
 TAC *do_assign(SYM *var, EXP *exp);
 TAC *do_output(SYM *var);
@@ -117,4 +126,8 @@ EXP *do_bin( int binop, EXP *exp1, EXP *exp2);
 EXP *do_cmp( int binop, EXP *exp1, EXP *exp2);
 EXP *do_un( int unop, EXP *exp);
 EXP *do_call_ret(char *name, EXP *arglist);
+/* pointer support */
+EXP *do_addr(SYM *var);
+EXP *do_deref(EXP *addr);
+TAC *do_store(EXP *addr, EXP *rhs);
 void error(const char *format, ...);

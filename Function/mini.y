@@ -68,10 +68,18 @@ variable_list : IDENTIFIER
 {
 	$$=declare_var_with_type(current_decl_dtype, $1);
 }               
+| '*' IDENTIFIER
+{
+	$$=declare_ptr_var(current_decl_dtype, $2);
+}
 | variable_list ',' IDENTIFIER
 {
 	$$=join_tac($1, declare_var_with_type(current_decl_dtype, $3));
 }               
+| variable_list ',' '*' IDENTIFIER
+{
+	$$=join_tac($1, declare_ptr_var(current_decl_dtype, $4));
+}
 ;
 
 function : function_head '(' parameter_list ')' block
@@ -99,10 +107,18 @@ parameter_list : type IDENTIFIER
 {
 	$$=declare_para(current_decl_dtype, $2);
 }               
+| type '*' IDENTIFIER
+{
+	$$=declare_para_ptr(current_decl_dtype, $3);
+}
 | parameter_list ',' type IDENTIFIER
 {
 	$$=join_tac($1, declare_para(current_decl_dtype, $4));
 }               
+| parameter_list ',' type '*' IDENTIFIER
+{
+	$$=join_tac($1, declare_para_ptr(current_decl_dtype, $5));
+}
 |
 {
 	$$=NULL;
@@ -151,6 +167,10 @@ assignment_statement : IDENTIFIER '=' expression
 {
 	$$=do_assign(get_var($1), $3);
 }
+| '*' expression '=' expression
+{
+	$$=do_store($2, $4);
+}
 ;
 
 expression : expression '+' expression
@@ -172,6 +192,10 @@ expression : expression '+' expression
 | '-' expression  %prec UMINUS
 {
 	$$=do_un(TAC_NEG, $2);
+}
+| '*' expression %prec UMINUS
+{
+	$$=do_deref($2);
 }
 | expression EQ expression
 {
@@ -212,6 +236,10 @@ expression : expression '+' expression
 | IDENTIFIER
 {
 	$$=mk_exp(NULL, get_var($1), NULL);
+}
+| '&' IDENTIFIER
+{
+	$$=do_addr(get_var($2));
 }
 | call_expression
 {

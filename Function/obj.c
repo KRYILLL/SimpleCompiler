@@ -515,6 +515,50 @@ void asm_code(TAC *c)
 		scope=0;
 		return;
 
+		case TAC_ADDR:
+		{
+			/* compute address of variable c->b into c->a */
+			int rd = reg_alloc(c->a);
+			if (c->b->scope==1) {
+				out_str(file_s, "\tLOD R%u,R%u\n", rd, R_BP);
+			} else {
+				out_str(file_s, "\tLOD R%u,STATIC\n", rd);
+			}
+			/* add offset */
+			int ro = reg_alloc(mk_int_const(c->b->offset));
+			out_str(file_s, "\tADD R%u,R%u\n", rd, ro);
+			rdesc_fill(rd, c->a, MODIFIED);
+			return;
+		}
+
+		case TAC_LOAD:
+		{
+			/* a = *b  -- load via pointer in b */
+			int ra = reg_alloc(c->b);
+			if (c->b && c->b->is_ptr && c->b->base_dtype == DTYPE_CHAR) {
+				out_str(file_s, "\tLDC R%u,(R%u)\n", ra, ra);
+			} else {
+				out_str(file_s, "\tLOD R%u,(R%u)\n", ra, ra);
+			}
+			rdesc_fill(ra, c->a, MODIFIED);
+			return;
+		}
+
+		case TAC_STORE:
+		{
+			/* *a = b  -- store via pointer in a */
+			int ra = reg_alloc(c->a);
+			int rb = reg_alloc(c->b);
+			if (c->a && c->a->is_ptr && c->a->base_dtype == DTYPE_CHAR) {
+				out_str(file_s, "\tSTC (R%u),R%u\n", ra, rb);
+			} else {
+				out_str(file_s, "\tSTO (R%u),R%u\n", ra, rb);
+			}
+			/* pointer store may modify any variable through aliasing: invalidate all cached regs */
+			for(int r=R_GEN; r < R_NUM; r++) rdesc_clear(r);
+			return;
+		}
+
 		default:
 		/* Don't know what this one is */
 		error("unknown TAC opcode to translate");

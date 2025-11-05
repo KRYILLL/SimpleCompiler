@@ -6,7 +6,7 @@ main()
 	{
 		if(i>10)
 		{
-			output "break"
+			output "break";
 			break;
 		}
 		output i; 
@@ -17,7 +17,7 @@ main()
 	{
 		if(i==10)
 		{
-			output "continue"
+			output "continue";
 			continue;
 		}
 		output i; 

@@ -84,6 +84,8 @@ SYM *mk_var_with_type(int dtype, char *name)
     /* default data type and size (may be overridden by declare helpers) */
     sym->dtype = dtype;
     sym->size = (sym->dtype == DTYPE_CHAR) ? SIZE_CHAR : SIZE_INT;
+    sym->is_ptr = 0;
+    sym->base_dtype = dtype;
 
 	if(scope)  
 		insert_sym(&sym_tab_local,sym);
@@ -115,6 +117,20 @@ TAC *declare_var_with_type(int dtype, char *name)
 	if (s) {
 		s->dtype = dtype;
 		s->size = (dtype == DTYPE_CHAR) ? SIZE_CHAR : SIZE_INT;
+		s->is_ptr = 0;
+		s->base_dtype = dtype;
+	}
+	return mk_tac(TAC_VAR, s, NULL, NULL);
+}
+
+TAC *declare_ptr_var(int base_dtype, char *name)
+{
+	SYM *s = mk_var_with_type(DTYPE_PTR, name);
+	if (s) {
+		s->dtype = DTYPE_PTR;
+		s->is_ptr = 1;
+		s->base_dtype = base_dtype;
+		s->size = SIZE_INT; /* pointer size */
 	}
 	return mk_tac(TAC_VAR, s, NULL, NULL);
 }
@@ -192,9 +208,35 @@ SYM *mk_tmp(void)
 	return mk_var_with_type(DTYPE_INT,name);
 }
 
+SYM *mk_tmp_with(int dtype, int size, int is_ptr, int base_dtype)
+{
+	SYM *sym;
+	char *name;
+	name = (char*)malloc(12);
+	sprintf(name, "t%d", next_tmp++);
+	sym = mk_var_with_type(dtype, name);
+	if (sym) {
+		sym->dtype = dtype;
+		sym->size = size;
+		sym->is_ptr = is_ptr;
+		sym->base_dtype = base_dtype;
+	}
+	return sym;
+}
+
 TAC *declare_para(int dtype, char *name)
 {
 	return mk_tac(TAC_FORMAL,mk_var_with_type(dtype, name),NULL,NULL);
+}
+
+TAC *declare_para_ptr(int base_dtype, char *name)
+{
+	SYM *s = mk_var_with_type(DTYPE_PTR, name);
+	s->dtype = DTYPE_PTR;
+	s->is_ptr = 1;
+	s->base_dtype = base_dtype;
+	s->size = SIZE_INT;
+	return mk_tac(TAC_FORMAL, s, NULL, NULL);
 }
 
 SYM *declare_func(char *name)
@@ -339,6 +381,46 @@ EXP *do_un( int unop, EXP *exp)
 	exp->tac=ret;
 
 	return exp;   
+}
+
+/* a = &var */
+EXP *do_addr(SYM *var)
+{
+	/* result is a pointer to var's dtype */
+	int base = var->dtype;
+	SYM *ret = mk_tmp_with(DTYPE_PTR, SIZE_INT, 1, base);
+	TAC *tvar = mk_tac(TAC_VAR, ret, NULL, NULL);
+	TAC *taddr = mk_tac(TAC_ADDR, ret, var, NULL);
+	taddr->prev = tvar;
+	return mk_exp(NULL, ret, taddr);
+}
+
+/* a = *addr */
+EXP *do_deref(EXP *addr)
+{
+	int base = DTYPE_INT;
+	int size = SIZE_INT;
+	if (addr && addr->ret && addr->ret->is_ptr) {
+		base = addr->ret->base_dtype;
+		size = (base == DTYPE_CHAR) ? SIZE_CHAR : SIZE_INT;
+	}
+	SYM *ret = mk_tmp_with(base, size, 0, base);
+	TAC *tvar = mk_tac(TAC_VAR, ret, NULL, NULL);
+	tvar->prev = addr->tac;
+	TAC *tld = mk_tac(TAC_LOAD, ret, addr->ret, NULL);
+	tld->prev = tvar;
+	addr->ret = ret;
+	addr->tac = tld;
+	return addr;
+}
+
+/* *addr = rhs */
+TAC *do_store(EXP *addr, EXP *rhs)
+{
+	TAC *code = join_tac(addr->tac, rhs->tac);
+	TAC *ts = mk_tac(TAC_STORE, addr->ret, rhs->ret, NULL);
+	ts->prev = code;
+	return ts;
 }
 
 TAC *do_call(char *name, EXP *arglist)
@@ -653,6 +735,18 @@ void out_tac(FILE *f, TAC *i)
 
 		case TAC_OUTPUT:
 		fprintf(f, "output %s", to_str(i->a, sa));
+		break;
+
+		case TAC_ADDR:
+		fprintf(f, "%s = &%s", to_str(i->a, sa), to_str(i->b, sb));
+		break;
+
+		case TAC_LOAD:
+		fprintf(f, "%s = *%s", to_str(i->a, sa), to_str(i->b, sb));
+		break;
+
+		case TAC_STORE:
+		fprintf(f, "*%s = %s", to_str(i->a, sa), to_str(i->b, sb));
 		break;
 
 		case TAC_RETURN:

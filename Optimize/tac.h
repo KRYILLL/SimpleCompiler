@@ -1,3 +1,7 @@
+/* prevent multiple inclusion */
+#ifndef TAC_H
+#define TAC_H
+
 /* type of symbol */
 #define SYM_UNDEF 0
 #define SYM_VAR 1
@@ -110,3 +114,5 @@ EXP *do_cmp( int binop, EXP *exp1, EXP *exp2);
 EXP *do_un( int unop, EXP *exp);
 EXP *do_call_ret(char *name, EXP *arglist);
 void error(const char *format, ...);
+
+#endif /* TAC_H */

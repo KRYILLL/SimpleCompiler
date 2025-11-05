@@ -5,6 +5,7 @@
 #include "tac.h"
 #include "mini.y.h"
 #include "obj.h"
+#include "cfg.h"
 
 FILE *file_x, *file_s;
 
@@ -50,7 +51,12 @@ int main(int argc,   char *argv[])
 	tac_init();
 	yyparse();
 	tac_list();
+	
+	/* Build and print CFGs */
+	CFG_ALL *cfg = cfg_build_all();
+	cfg_print_all(cfg);
 	tac_obj();
+	cfg_free_all(cfg);
 
 	fclose(file_s);
 	fclose(file_x);
