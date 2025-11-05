@@ -27,9 +27,19 @@
     3. 将declare_var函数修改为declare_var_with_type函数
     4. 将mk_var修改为mk_var_with_type
     5. 在declare_para中增加参数，使之支持类型
-    6. 增加SYM_CHAR,DTYPE_INT,DTYPE_CHAR,SIZE_INT,SIZE_CHAR 
+    6. 增加SYM_CHAR,DTYPE_INT,DTYPE_CHAR,SIZE_INT,SIZE_CHAR
     7. 修改asm_load增加char的加载
     8. 修改TAC_OUTPUT，增加对char的支持
 
+## v0.2.1
+
+### 修改点
+
+- 实现字符的输入
+
+1. obj.c修改
+    1.修改TAC_OUTPUT使之支持char
+
 ## 待定事务
+
 1. mk_tmp未支持type可能存在问题，暂时未改

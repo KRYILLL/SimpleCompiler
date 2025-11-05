@@ -417,8 +417,13 @@ void asm_code(TAC *c)
 
 		case TAC_INPUT:
 		r=reg_alloc(c->a);
-		out_str(file_s, "	ITI\n");
-		out_str(file_s, "	LOD R%u,R15\n", r);
+		/* Use character or integer input based on the symbol size */
+		if (c->a->size == SIZE_CHAR) {
+			out_str(file_s, "\tITC\n");
+		} else {
+			out_str(file_s, "\tITI\n");
+		}
+		out_str(file_s, "\tLOD R%u,R15\n", r);
 		rdesc[r].mod = MODIFIED;
 		return;
 
