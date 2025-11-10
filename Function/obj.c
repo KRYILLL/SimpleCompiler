@@ -40,7 +40,7 @@ void asm_write_back(int r)
 	{
 		if(rdesc[r].var->scope==1) /* local var */
 		{
-			if (rdesc[r].var->size == SIZE_CHAR)
+			if (type_size(rdesc[r].var->ty) == SIZE_CHAR)
 				out_str(file_s, "	STC (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
 			else
 				out_str(file_s, "	STO (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
@@ -48,7 +48,7 @@ void asm_write_back(int r)
 		else /* global var */
 		{
 			out_str(file_s, "	LOD R%u,STATIC\n", R_TP);
-			if (rdesc[r].var->size == SIZE_CHAR)
+			if (type_size(rdesc[r].var->ty) == SIZE_CHAR)
 				out_str(file_s, "	STC (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
 			else
 				out_str(file_s, "	STO (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
@@ -87,7 +87,7 @@ void asm_load(int r, SYM *s)
 		case SYM_VAR:
 		if(s->scope==1) /* local var */
 		{
-			if (s->size == SIZE_CHAR) {
+			if (type_size(s->ty) == SIZE_CHAR) {
 				if((s->offset)>=0) out_str(file_s, "	LDC R%u,(R%u+%d)\n", r, R_BP, s->offset);
 				else out_str(file_s, "	LDC R%u,(R%u-%d)\n", r, R_BP, -(s->offset));
 			} else {
@@ -98,7 +98,7 @@ void asm_load(int r, SYM *s)
 		else /* global var */
 		{
 			out_str(file_s, "	LOD R%u,STATIC\n", R_TP);
-			if (s->size == SIZE_CHAR)
+			if (type_size(s->ty) == SIZE_CHAR)
 				out_str(file_s, "	LDC R%u,(R%u+%d)\n", r, R_TP, s->offset);
 			else
 				out_str(file_s, "	LOD R%u,(R%u+%d)\n", r, R_TP, s->offset);
@@ -417,8 +417,7 @@ void asm_code(TAC *c)
 
 		case TAC_INPUT:
 		r=reg_alloc(c->a);
-		/* Use character or integer input based on the symbol size */
-		if (c->a->size == SIZE_CHAR) {
+		if (type_size(c->a->ty) == SIZE_CHAR) {
 			out_str(file_s, "\tITC\n");
 		} else {
 			out_str(file_s, "\tITI\n");
@@ -428,14 +427,13 @@ void asm_code(TAC *c)
 		return;
 
 		case TAC_OUTPUT:
-		/* Output: handle text, char and int (default) -- ensure register is allocated before use */
 		if(c->a->type == SYM_TEXT)
 		{
 			r = reg_alloc(c->a);
 			out_str(file_s, "\tLOD R15,R%u\n", r);
 			out_str(file_s, "\tOTS\n");
 		}
-		else if (c->a->size == SIZE_CHAR)
+		else if (type_size(c->a->ty) == SIZE_CHAR)
 		{
 			r = reg_alloc(c->a);
 			out_str(file_s, "\tLOD R15,R%u\n", r);
@@ -465,9 +463,8 @@ void asm_code(TAC *c)
 
 		case TAC_ACTUAL:
 		r=reg_alloc(c->a);
-		out_str(file_s, "	STO (R2+%d),R%u\n", tof+oon, r);
-		/* increase offset by argument size */
-		if (c->a != NULL) oon += c->a->size; else oon += SIZE_INT;
+		out_str(file_s, "\tSTO (R2+%d),R%u\n", tof+oon, r);
+		if (c->a != NULL) oon += type_size(c->a->ty); else oon += SIZE_INT;
 		return;
 
 		case TAC_CALL:
@@ -475,7 +472,6 @@ void asm_code(TAC *c)
 		return;
 
 		case TAC_BEGINFUNC:
-		/* We reset the top of stack, since it is currently empty apart from the link information. */
 		scope=1;
 		tof=LOCAL_OFF;
 		oof=FORMAL_OFF;
@@ -485,8 +481,7 @@ void asm_code(TAC *c)
 		case TAC_FORMAL:
 		c->a->scope=1; /* parameter is special local var */
 		c->a->offset=oof;
-		/* reserve space according to declared size */
-		oof -= c->a->size;
+		oof -= type_size(c->a->ty);
 		return;
 
 		case TAC_VAR:
@@ -494,15 +489,13 @@ void asm_code(TAC *c)
 		{
 			c->a->scope=1; /* local var */
 			c->a->offset=tof;
-			/* allocate according to symbol size */
-			tof += c->a->size;
+			tof += type_size(c->a->ty);
 		}
 		else
 		{
 			c->a->scope=0; /* global var */
 			c->a->offset=tos;
-			/* allocate according to symbol size */
-			tos += c->a->size;
+			tos += type_size(c->a->ty);
 		}
 		return;
 
@@ -517,14 +510,12 @@ void asm_code(TAC *c)
 
 		case TAC_ADDR:
 		{
-			/* compute address of variable c->b into c->a */
 			int rd = reg_alloc(c->a);
 			if (c->b->scope==1) {
 				out_str(file_s, "\tLOD R%u,R%u\n", rd, R_BP);
 			} else {
 				out_str(file_s, "\tLOD R%u,STATIC\n", rd);
 			}
-			/* add offset */
 			int ro = reg_alloc(mk_int_const(c->b->offset));
 			out_str(file_s, "\tADD R%u,R%u\n", rd, ro);
 			rdesc_fill(rd, c->a, MODIFIED);
@@ -533,9 +524,10 @@ void asm_code(TAC *c)
 
 		case TAC_LOAD:
 		{
-			/* a = *b  -- load via pointer in b */
 			int ra = reg_alloc(c->b);
-			if (c->b && c->b->is_ptr && c->b->base_dtype == DTYPE_CHAR) {
+			Type *elem = NULL;
+			if (c->b && c->b->ty && type_is_ptr(c->b->ty)) elem = type_base(c->b->ty);
+			if (elem && type_is_char(elem)) {
 				out_str(file_s, "\tLDC R%u,(R%u)\n", ra, ra);
 			} else {
 				out_str(file_s, "\tLOD R%u,(R%u)\n", ra, ra);
@@ -546,21 +538,20 @@ void asm_code(TAC *c)
 
 		case TAC_STORE:
 		{
-			/* *a = b  -- store via pointer in a */
 			int ra = reg_alloc(c->a);
 			int rb = reg_alloc(c->b);
-			if (c->a && c->a->is_ptr && c->a->base_dtype == DTYPE_CHAR) {
+			Type *elem = NULL;
+			if (c->a && c->a->ty && type_is_ptr(c->a->ty)) elem = type_base(c->a->ty);
+			if (elem && type_is_char(elem)) {
 				out_str(file_s, "\tSTC (R%u),R%u\n", ra, rb);
 			} else {
 				out_str(file_s, "\tSTO (R%u),R%u\n", ra, rb);
 			}
-			/* pointer store may modify any variable through aliasing: invalidate all cached regs */
 			for(int r=R_GEN; r < R_NUM; r++) rdesc_clear(r);
 			return;
 		}
 
 		default:
-		/* Don't know what this one is */
 		error("unknown TAC opcode to translate");
 		return;
 	}

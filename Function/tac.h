@@ -1,4 +1,8 @@
 /* type of symbol */
+#ifndef TAC_H
+#define TAC_H
+
+#include "type.h"
 #define SYM_UNDEF 0
 #define SYM_VAR 1
 #define SYM_FUNC 2
@@ -61,10 +65,8 @@ typedef struct sym
 	struct sym *next;
 	void *etc;
 
-	int dtype; /* DTYPE_INT / DTYPE_CHAR */
-	int size; /* bytes: SIZE_INT / SIZE_CHAR */
-	int is_ptr;      /* 1 if this symbol is a pointer */
-	int base_dtype;  /* if pointer, what's the base dtype (DTYPE_INT/DTYPE_CHAR) */
+	/* 统一类型系统：首选读取 ty；以下旧字段保持向后兼容（逐步淘汰） */
+	struct Type *ty;   /* 指向统一类型对象 */
 } SYM;
 
 typedef struct tac
@@ -101,7 +103,7 @@ void out_sym(FILE *f, SYM *s);
 void out_tac(FILE *f, TAC *i);
 SYM *mk_label(char *name);
 SYM *mk_tmp(void);
-SYM *mk_tmp_with(int dtype, int size, int is_ptr, int base_dtype);
+SYM *mk_tmp_of_type(struct Type *t);
 SYM *mk_int_const(int n);
 SYM *mk_char_const(int n);
 SYM *mk_text(char *text);
@@ -131,3 +133,5 @@ EXP *do_addr(SYM *var);
 EXP *do_deref(EXP *addr);
 TAC *do_store(EXP *addr, EXP *rhs);
 void error(const char *format, ...);
+
+#endif /* TAC_H */

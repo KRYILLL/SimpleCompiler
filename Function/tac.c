@@ -4,6 +4,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "tac.h"
+#include "type.h"
 
 /* global var */
 int scope, next_tmp, next_label;
@@ -81,11 +82,8 @@ SYM *mk_var_with_type(int dtype, char *name)
 	sym->type=SYM_VAR;
 	sym->name=name;
 	sym->offset=-1; /* Unset address */
-    /* default data type and size (may be overridden by declare helpers) */
-    sym->dtype = dtype;
-    sym->size = (sym->dtype == DTYPE_CHAR) ? SIZE_CHAR : SIZE_INT;
-    sym->is_ptr = 0;
-    sym->base_dtype = dtype;
+	/* 统一类型：仅保存 Type* */
+	sym->ty = (dtype == DTYPE_CHAR) ? type_char() : type_int();
 
 	if(scope)  
 		insert_sym(&sym_tab_local,sym);
@@ -115,10 +113,7 @@ TAC *declare_var_with_type(int dtype, char *name)
 {
 	SYM *s = mk_var_with_type(dtype,name);
 	if (s) {
-		s->dtype = dtype;
-		s->size = (dtype == DTYPE_CHAR) ? SIZE_CHAR : SIZE_INT;
-		s->is_ptr = 0;
-		s->base_dtype = dtype;
+		s->ty = (dtype == DTYPE_CHAR) ? type_char() : type_int();
 	}
 	return mk_tac(TAC_VAR, s, NULL, NULL);
 }
@@ -127,10 +122,7 @@ TAC *declare_ptr_var(int base_dtype, char *name)
 {
 	SYM *s = mk_var_with_type(DTYPE_PTR, name);
 	if (s) {
-		s->dtype = DTYPE_PTR;
-		s->is_ptr = 1;
-		s->base_dtype = base_dtype;
-		s->size = SIZE_INT; /* pointer size */
+		s->ty = type_ptr((base_dtype == DTYPE_CHAR) ? type_char() : type_int());
 	}
 	return mk_tac(TAC_VAR, s, NULL, NULL);
 }
@@ -148,8 +140,7 @@ SYM *mk_char_const(int c)
 	sym->type = SYM_CHAR; /* keep as numeric literal category */
 	sym->value = c;
 	sym->name = strdup(name);
-	sym->dtype = DTYPE_CHAR;
-	sym->size = SIZE_CHAR;
+	sym->ty = type_char();
 	insert_sym(&sym_tab_global, sym);
 
 	return sym;
@@ -208,34 +199,33 @@ SYM *mk_tmp(void)
 	return mk_var_with_type(DTYPE_INT,name);
 }
 
-SYM *mk_tmp_with(int dtype, int size, int is_ptr, int base_dtype)
+SYM *mk_tmp_of_type(Type *t)
 {
 	SYM *sym;
 	char *name;
 	name = (char*)malloc(12);
 	sprintf(name, "t%d", next_tmp++);
+	int dtype = (t && t->kind == TY_CHAR) ? DTYPE_CHAR : DTYPE_INT;
 	sym = mk_var_with_type(dtype, name);
 	if (sym) {
-		sym->dtype = dtype;
-		sym->size = size;
-		sym->is_ptr = is_ptr;
-		sym->base_dtype = base_dtype;
+		sym->ty = t ? t : type_int();
 	}
 	return sym;
 }
 
+/* mk_tmp_with 已弃用：统一类型系统直接使用 mk_tmp_of_type */
+
 TAC *declare_para(int dtype, char *name)
 {
-	return mk_tac(TAC_FORMAL,mk_var_with_type(dtype, name),NULL,NULL);
+	SYM *s = mk_var_with_type(dtype, name);
+	if (s) s->ty = (dtype == DTYPE_CHAR) ? type_char() : type_int();
+	return mk_tac(TAC_FORMAL, s, NULL, NULL);
 }
 
 TAC *declare_para_ptr(int base_dtype, char *name)
 {
 	SYM *s = mk_var_with_type(DTYPE_PTR, name);
-	s->dtype = DTYPE_PTR;
-	s->is_ptr = 1;
-	s->base_dtype = base_dtype;
-	s->size = SIZE_INT;
+	s->ty = type_ptr((base_dtype == DTYPE_CHAR) ? type_char() : type_int());
 	return mk_tac(TAC_FORMAL, s, NULL, NULL);
 }
 
@@ -386,9 +376,8 @@ EXP *do_un( int unop, EXP *exp)
 /* a = &var */
 EXP *do_addr(SYM *var)
 {
-	/* result is a pointer to var's dtype */
-	int base = var->dtype;
-	SYM *ret = mk_tmp_with(DTYPE_PTR, SIZE_INT, 1, base);
+	/* 结果类型是指向 var->ty 的指针 */
+	SYM *ret = mk_tmp_of_type(type_ptr(var->ty));
 	TAC *tvar = mk_tac(TAC_VAR, ret, NULL, NULL);
 	TAC *taddr = mk_tac(TAC_ADDR, ret, var, NULL);
 	taddr->prev = tvar;
@@ -398,13 +387,11 @@ EXP *do_addr(SYM *var)
 /* a = *addr */
 EXP *do_deref(EXP *addr)
 {
-	int base = DTYPE_INT;
-	int size = SIZE_INT;
-	if (addr && addr->ret && addr->ret->is_ptr) {
-		base = addr->ret->base_dtype;
-		size = (base == DTYPE_CHAR) ? SIZE_CHAR : SIZE_INT;
+	Type *elem = type_int();
+	if (addr && addr->ret && addr->ret->ty && type_is_ptr(addr->ret->ty) && type_base(addr->ret->ty)) {
+		elem = type_base(addr->ret->ty);
 	}
-	SYM *ret = mk_tmp_with(base, size, 0, base);
+	SYM *ret = mk_tmp_of_type(elem);
 	TAC *tvar = mk_tac(TAC_VAR, ret, NULL, NULL);
 	tvar->prev = addr->tac;
 	TAC *tld = mk_tac(TAC_LOAD, ret, addr->ret, NULL);
@@ -597,8 +584,7 @@ SYM *mk_int_const(int n)
 	sym->type=SYM_INT;
 	sym->value=n;
 	sym->name=strdup(name);
-		sym->dtype = DTYPE_INT;
-		sym->size = SIZE_INT;
+	sym->ty = type_int();
 	insert_sym(&sym_tab_global,sym);
 
 	return sym;
