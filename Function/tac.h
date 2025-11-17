@@ -114,6 +114,10 @@ SYM *get_var(char *name);
 SYM *declare_func(char *name);
 TAC *declare_var_with_type(int dtype, char *name);
 TAC *declare_ptr_var(int base_dtype, char *name);
+/* 声明数组变量：dims 为维度数组，ndims 为维度个数 */
+TAC *declare_array_var_dims(int base_dtype, char *name, int *dims, int ndims);
+/* 直接用指定 Type 声明变量（数组构造后调用） */
+TAC *declare_var_type(struct Type *ty, char *name);
 TAC *declare_para(int dtype, char *name);
 TAC *declare_para_ptr(int base_dtype, char *name);
 TAC *do_func(SYM *name,    TAC *args, TAC *code);
@@ -132,6 +136,12 @@ EXP *do_call_ret(char *name, EXP *arglist);
 EXP *do_addr(SYM *var);
 EXP *do_deref(EXP *addr);
 TAC *do_store(EXP *addr, EXP *rhs);
+/* 数组下标访问：返回元素的地址（指针）或直接读取元素 */
+EXP *do_array_access(char *name, EXP *indices, int is_lvalue);
+/* 构造索引链节点：前插法*/
+EXP *link_index_exp(EXP *head, EXP *idx);
+/* 数组元素赋值：arr[indices] = rhs */
+TAC *do_array_store(SYM *arr, EXP *indices, EXP *rhs);
 void error(const char *format, ...);
 
 #endif /* TAC_H */

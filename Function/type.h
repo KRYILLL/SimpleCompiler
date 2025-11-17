@@ -36,10 +36,18 @@ Type *type_char(void);
 /* 指针类型：返回一个以 base 为元素类型的指针 Type；可简单缓存或直接分配 */
 Type *type_ptr(Type *base);
 
+/* 数组类型：返回一个以 base 为元素类型、长度为 len 的数组类型 */
+Type *type_array(Type *base, int len);
+
 /* 工具：获取大小（直接读 type->size）；判定是否“按字节”/“按整字”访存 */
 int type_size(Type *t);
 int type_is_char(Type *t);
 int type_is_ptr(Type *t);
+int type_is_array(Type *t);
 Type *type_base(Type *t);
+int type_array_len(Type *t);
+
+/* 计算从该类型衍生出的最底层元素大小（多维数组/指针链最终元素） */
+int type_elem_size(Type *t);
 
 #endif /* TYPE_H */

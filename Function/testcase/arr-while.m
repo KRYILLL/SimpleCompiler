@@ -10,6 +10,7 @@ main()
     {
         arr1[j] = i;
         i = i + 1;
+        j = j + 1;
     }
 
     if(0) { output "\n"; }

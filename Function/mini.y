@@ -19,6 +19,7 @@ void yyerror(char* msg);
 	SYM *sym;
 	TAC *tac;
 	EXP	*exp;
+	struct Type *ty;
 }
 
 %token INT CHAR EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN
@@ -33,6 +34,8 @@ void yyerror(char* msg);
 %type <tac> program function_declaration_list function_declaration function parameter_list variable_list statement assignment_statement return_statement if_statement while_statement call_statement block declaration_list declaration statement_list input_statement output_statement
 %type <exp> argument_list expression_list expression call_expression
 %type <sym> function_head
+%type <exp> array_idx_list
+%type <ty> arr_decl_dims
 
 %%
 
@@ -72,6 +75,13 @@ variable_list : IDENTIFIER
 {
 	$$=declare_ptr_var(current_decl_dtype, $2);
 }
+| IDENTIFIER arr_decl_dims
+{
+	/* 声明数组变量：使用构造好的数组类型 */
+	Type *base = (current_decl_dtype==DTYPE_CHAR)? type_char(): type_int();
+	Type *ty = $2 ? $2 : base;
+	$$ = declare_var_type(ty, $1);
+}
 | variable_list ',' IDENTIFIER
 {
 	$$=join_tac($1, declare_var_with_type(current_decl_dtype, $3));
@@ -79,6 +89,12 @@ variable_list : IDENTIFIER
 | variable_list ',' '*' IDENTIFIER
 {
 	$$=join_tac($1, declare_ptr_var(current_decl_dtype, $4));
+}
+| variable_list ',' IDENTIFIER arr_decl_dims
+{
+	Type *base = (current_decl_dtype==DTYPE_CHAR)? type_char(): type_int();
+	Type *ty = $4 ? $4 : base;
+	$$=join_tac($1, declare_var_type(ty, $3));
 }
 ;
 
@@ -171,6 +187,10 @@ assignment_statement : IDENTIFIER '=' expression
 {
 	$$=do_store($2, $4);
 }
+| IDENTIFIER array_idx_list '=' expression
+{
+	$$ = do_array_store(get_var($1), $2, $4);
+}
 ;
 
 expression : expression '+' expression
@@ -236,6 +256,10 @@ expression : expression '+' expression
 | IDENTIFIER
 {
 	$$=mk_exp(NULL, get_var($1), NULL);
+}
+| IDENTIFIER array_idx_list
+{
+	$$ = do_array_access($1, $2, 0);
 }
 | '&' IDENTIFIER
 {
@@ -316,6 +340,29 @@ call_statement : IDENTIFIER '(' argument_list ')'
 call_expression : IDENTIFIER '(' argument_list ')'
 {
 	$$=do_call_ret($1, $3);
+}
+;
+
+/* 数组：下标列表 [expr][expr]... 构成一个链表（头结点是最后一个表达式），在 TAC 里会反转顺序 */
+array_idx_list : '[' expression ']'
+{
+	$$ = link_index_exp(NULL, $2);
+}
+| array_idx_list '[' expression ']'
+{
+	$$ = link_index_exp($1, $3);
+}
+;
+
+/* 数组声明维度：构造成 Type*，按外->内逐层包装 */
+arr_decl_dims : '[' INTEGER ']'
+{
+	Type *base = (current_decl_dtype==DTYPE_CHAR)? type_char(): type_int();
+	$$ = type_array(base, atoi($2));
+}
+| arr_decl_dims '[' INTEGER ']'
+{
+	$$ = type_array($1, atoi($3));
 }
 ;
 

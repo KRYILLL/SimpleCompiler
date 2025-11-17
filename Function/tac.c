@@ -215,6 +215,20 @@ SYM *mk_tmp_of_type(Type *t)
 
 /* mk_tmp_with 已弃用：统一类型系统直接使用 mk_tmp_of_type */
 
+static EXP *reverse_exp_list(EXP *head)
+{
+	EXP *prev=NULL, *cur=head;
+	while(cur){ EXP *n=cur->next; cur->next=prev; prev=cur; cur=n; }
+	return prev;
+}
+
+TAC *declare_var_type(Type *ty, char *name)
+{
+	SYM *s = mk_var_with_type(DTYPE_INT, name); /* dtype 占位 */
+	if (s) s->ty = ty ? ty : type_int();
+	return mk_tac(TAC_VAR, s, NULL, NULL);
+}
+
 TAC *declare_para(int dtype, char *name)
 {
 	SYM *s = mk_var_with_type(dtype, name);
@@ -227,6 +241,17 @@ TAC *declare_para_ptr(int base_dtype, char *name)
 	SYM *s = mk_var_with_type(DTYPE_PTR, name);
 	s->ty = type_ptr((base_dtype == DTYPE_CHAR) ? type_char() : type_int());
 	return mk_tac(TAC_FORMAL, s, NULL, NULL);
+}
+
+TAC *declare_array_var_dims(int base_dtype, char *name, int *dims, int ndims)
+{
+	Type *t = (base_dtype == DTYPE_CHAR) ? type_char() : type_int();
+	/* 从内层到外层构造：arr[a][b] => array(len=a) of array(len=b) of base? 实际 C 是外到内
+	   这里按外->内构造：t = array(t, dims[0]); t = array(t, dims[1]); ... */
+	for (int i = 0; i < ndims; ++i) {
+		t = type_array(t, dims[i]);
+	}
+	return declare_var_type(t, name);
 }
 
 SYM *declare_func(char *name)
@@ -408,6 +433,106 @@ TAC *do_store(EXP *addr, EXP *rhs)
 	TAC *ts = mk_tac(TAC_STORE, addr->ret, rhs->ret, NULL);
 	ts->prev = code;
 	return ts;
+}
+
+static int collect_dims(Type *t, int *buf, int maxn)
+{
+	int n=0;
+	while (t && t->kind == TY_ARRAY && n < maxn) { buf[n++] = t->array_len; t = t->base; }
+	return n;
+}
+
+/* 指针加法：结果类型为 resultTyPtr */
+static EXP *do_ptr_add(EXP *ptr, EXP *off, Type *resultTyPtr)
+{
+	SYM *ret = mk_tmp_of_type(resultTyPtr);
+	TAC *tvar = mk_tac(TAC_VAR, ret, NULL, NULL);
+	TAC *code = join_tac(ptr ? ptr->tac : NULL, off ? off->tac : NULL);
+	tvar->prev = code;
+	TAC *tadd = mk_tac(TAC_ADD, ret, ptr->ret, off->ret);
+	tadd->prev = tvar;
+	return mk_exp(NULL, ret, tadd);
+}
+
+/* 生成从数组名与下标列表到元素地址的表达式（返回指向元素的指针） */
+static EXP *do_array_address(SYM *arr, EXP *indices)
+{
+	if (!arr || !arr->ty || arr->ty->kind != TY_ARRAY) {
+		error("indexing a non-array variable");
+		return mk_exp(NULL, NULL, NULL);
+	}
+	/* 下标列表顺序修正为外->内 */
+	indices = reverse_exp_list(indices);
+
+	/* 收集维度 */
+	int dims[16];
+	int nd = collect_dims(arr->ty, dims, 16);
+
+	/* 当前类型构造顺序使得最外层维度在链表尾部，所以 collect_dims 得到的顺序是内->外，需要反转 */
+	for (int i=0; i<nd/2; ++i) {
+		int tmp = dims[i];
+		dims[i] = dims[nd-1-i];
+		dims[nd-1-i] = tmp;
+	}
+
+	/* 收集索引表达式到数组，拼接其 TAC */
+	EXP *idxs[16];
+	int ni=0;
+	TAC *code=NULL;
+	for (EXP *p=indices; p; p=p->next) {
+		if (ni>=16) error("too many indices");
+		idxs[ni++] = p;
+		code = join_tac(code, p->tac);
+	}
+	if (ni != nd) {
+		error("array index dimension mismatch");
+	}
+
+	/* 线性化：off = i0; for k=1..n-1: off = off*dim[k] + ik */
+	EXP *offExp = idxs[0];
+	for (int k=1; k<ni; ++k) {
+		EXP *dimk = mk_exp(NULL, mk_int_const(dims[k]), NULL);
+		offExp = do_bin(TAC_MUL, offExp, dimk);
+		offExp = do_bin(TAC_ADD, offExp, idxs[k]);
+	}
+
+	/* 字节偏移 */
+	int esize = type_elem_size(arr->ty);
+	if (esize > 1) {
+		EXP *esz = mk_exp(NULL, mk_int_const(esize), NULL);
+		offExp = do_bin(TAC_MUL, offExp, esz);
+	}
+
+	/* 基址：&arr ，目的类型应为指向最内层元素 */
+	Type *elem = arr->ty;
+	while (elem && elem->kind == TY_ARRAY) elem = elem->base;
+	EXP *base = do_addr(arr);
+	/* 调整 base 返回指针类型为指向元素，而不是指向数组 */
+	if (base && base->ret) base->ret->ty = type_ptr(elem);
+
+	/* 结果地址 */
+	return do_ptr_add(base, offExp, type_ptr(elem));
+}
+
+EXP *do_array_access(char *name, EXP *indices, int is_lvalue)
+{
+	SYM *arr = get_var(name);
+	EXP *addr = do_array_address(arr, indices);
+	if (is_lvalue) return addr;
+	return do_deref(addr);
+}
+
+EXP *link_index_exp(EXP *head, EXP *idx)
+{
+	if (!idx) return head;
+	idx->next = head;
+	return idx;
+}
+
+TAC *do_array_store(SYM *arr, EXP *indices, EXP *rhs)
+{
+	EXP *addr = do_array_address(arr, indices);
+	return do_store(addr, rhs);
 }
 
 TAC *do_call(char *name, EXP *arglist)
