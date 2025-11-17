@@ -14,9 +14,9 @@ typedef enum {
 struct Type;
 
 typedef struct Field {
-    const char *name;           /* 预留：结构字段名 */
-    struct Type *type;          /* 预留：字段类型 */
-    int offset;                 /* 预留：字段偏移 */
+    char *name;                 /* 结构字段名 */
+    struct Type *type;          /* 字段类型 */
+    int offset;                 /* 字段偏移（字节） */
 } Field;
 
 typedef struct Type {
@@ -38,6 +38,13 @@ Type *type_ptr(Type *base);
 
 /* 数组类型：返回一个以 base 为元素类型、长度为 len 的数组类型 */
 Type *type_array(Type *base, int len);
+
+/* 结构体类型：声明、查找、字段管理 */
+Type *type_struct_begin(const char *name);
+Type *type_struct_lookup(const char *name);
+void type_struct_add_field(Type *st, const char *field_name, Type *field_type);
+Field *type_struct_get_field(Type *st, const char *field_name);
+void type_struct_finalize(Type *st);
 
 /* 工具：获取大小（直接读 type->size）；判定是否“按字节”/“按整字”访存 */
 int type_size(Type *t);

@@ -88,6 +88,24 @@ typedef struct exp
 	void *etc;
 } EXP;
 
+typedef enum {
+	ACCESS_STEP_FIELD = 0,
+	ACCESS_STEP_INDEX = 1
+} AccessStepKind;
+
+typedef struct AccessPathStep {
+	AccessStepKind kind;
+	char *field_name;
+	EXP *index_exp;
+	struct AccessPathStep *next;
+} AccessPathStep;
+
+typedef struct AccessPath {
+	SYM *base;
+	AccessPathStep *head;
+	AccessPathStep *tail;
+} AccessPath;
+
 /* global var */
 extern FILE *file_x, *file_s;
 extern int yylineno, scope, next_tmp, next_label;
@@ -118,8 +136,7 @@ TAC *declare_ptr_var(int base_dtype, char *name);
 TAC *declare_array_var_dims(int base_dtype, char *name, int *dims, int ndims);
 /* 直接用指定 Type 声明变量（数组构造后调用） */
 TAC *declare_var_type(struct Type *ty, char *name);
-TAC *declare_para(int dtype, char *name);
-TAC *declare_para_ptr(int base_dtype, char *name);
+TAC *declare_para_type(struct Type *ty, char *name);
 TAC *do_func(SYM *name,    TAC *args, TAC *code);
 TAC *do_assign(SYM *var, EXP *exp);
 TAC *do_output(SYM *var);
@@ -143,5 +160,13 @@ EXP *link_index_exp(EXP *head, EXP *idx);
 /* 数组元素赋值：arr[indices] = rhs */
 TAC *do_array_store(SYM *arr, EXP *indices, EXP *rhs);
 void error(const char *format, ...);
+
+/* 结构/数组设计符访问 */
+AccessPath *access_path_new(SYM *base);
+AccessPath *access_path_append_field(AccessPath *path, char *field_name);
+AccessPath *access_path_append_index(AccessPath *path, EXP *index_exp);
+EXP *access_path_load(AccessPath *path);
+TAC *access_path_store(AccessPath *path, EXP *rhs);
+EXP *access_path_address(AccessPath *path);
 
 #endif /* TAC_H */

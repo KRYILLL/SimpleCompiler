@@ -11,6 +11,8 @@
 
 "char"  {  return CHAR;  }
 
+"struct"  {  return STRUCT;  }
+
 "input"  {  return INPUT;  }
 
 "output"  {  return OUTPUT;  }

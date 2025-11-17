@@ -120,11 +120,8 @@ TAC *declare_var_with_type(int dtype, char *name)
 
 TAC *declare_ptr_var(int base_dtype, char *name)
 {
-	SYM *s = mk_var_with_type(DTYPE_PTR, name);
-	if (s) {
-		s->ty = type_ptr((base_dtype == DTYPE_CHAR) ? type_char() : type_int());
-	}
-	return mk_tac(TAC_VAR, s, NULL, NULL);
+	Type *base = (base_dtype == DTYPE_CHAR) ? type_char() : type_int();
+	return declare_var_type(type_ptr(base), name);
 }
 
 SYM *mk_char_const(int c)
@@ -229,17 +226,10 @@ TAC *declare_var_type(Type *ty, char *name)
 	return mk_tac(TAC_VAR, s, NULL, NULL);
 }
 
-TAC *declare_para(int dtype, char *name)
+TAC *declare_para_type(Type *ty, char *name)
 {
-	SYM *s = mk_var_with_type(dtype, name);
-	if (s) s->ty = (dtype == DTYPE_CHAR) ? type_char() : type_int();
-	return mk_tac(TAC_FORMAL, s, NULL, NULL);
-}
-
-TAC *declare_para_ptr(int base_dtype, char *name)
-{
-	SYM *s = mk_var_with_type(DTYPE_PTR, name);
-	s->ty = type_ptr((base_dtype == DTYPE_CHAR) ? type_char() : type_int());
+	SYM *s = mk_var_with_type(DTYPE_INT, name);
+	if (s) s->ty = ty ? ty : type_int();
 	return mk_tac(TAC_FORMAL, s, NULL, NULL);
 }
 
@@ -452,6 +442,157 @@ static EXP *do_ptr_add(EXP *ptr, EXP *off, Type *resultTyPtr)
 	TAC *tadd = mk_tac(TAC_ADD, ret, ptr->ret, off->ret);
 	tadd->prev = tvar;
 	return mk_exp(NULL, ret, tadd);
+}
+
+typedef struct {
+	EXP *addr;
+	Type *ty;
+} AccessEval;
+
+static AccessEval access_path_eval_internal(AccessPath *path)
+{
+	AccessEval result = { NULL, NULL };
+	if (!path || !path->base) {
+		error("invalid lvalue");
+		return result;
+	}
+	Type *curType = path->base->ty;
+	if (!curType) curType = type_int();
+	EXP *addr = do_addr(path->base);
+	AccessPathStep *step = path->head;
+	while (step) {
+		if (!curType) {
+			error("invalid type in access path");
+			curType = type_int();
+		}
+		switch (step->kind) {
+		case ACCESS_STEP_FIELD:
+		{
+			if (curType->kind != TY_STRUCT) {
+				error("field access on non-struct");
+			}
+			Field *fld = type_struct_get_field(curType, step->field_name);
+			if (!fld) {
+				error("unknown struct field");
+			}
+			Type *fieldType = fld ? fld->type : type_int();
+			int offset = fld ? fld->offset : 0;
+			if (offset != 0) {
+				EXP *offExp = mk_exp(NULL, mk_int_const(offset), NULL);
+				addr = do_ptr_add(addr, offExp, type_ptr(fieldType));
+			} else {
+				if (addr && addr->ret) addr->ret->ty = type_ptr(fieldType);
+			}
+			curType = fieldType;
+			break;
+		}
+		case ACCESS_STEP_INDEX:
+		{
+			Type *elemType = NULL;
+			if (curType->kind == TY_ARRAY) elemType = curType->base;
+			else if (curType->kind == TY_PTR) elemType = curType->base;
+			else {
+				error("indexing non-array");
+				elemType = type_int();
+			}
+			if (!elemType) elemType = type_int();
+			EXP *idxExp = step->index_exp;
+			if (!idxExp) idxExp = mk_exp(NULL, mk_int_const(0), NULL);
+			int stride = type_size(elemType);
+			if (stride > 1) {
+				EXP *strideExp = mk_exp(NULL, mk_int_const(stride), NULL);
+				idxExp = do_bin(TAC_MUL, idxExp, strideExp);
+			}
+			addr = do_ptr_add(addr, idxExp, type_ptr(elemType));
+			curType = elemType;
+			break;
+		}
+		}
+		step = step->next;
+	}
+	if (addr && addr->ret) addr->ret->ty = type_ptr(curType);
+	result.addr = addr;
+	result.ty = curType;
+	return result;
+}
+
+AccessPath *access_path_new(SYM *base)
+{
+	if (!base) return NULL;
+	AccessPath *path = (AccessPath *)malloc(sizeof(AccessPath));
+	path->base = base;
+	path->head = NULL;
+	path->tail = NULL;
+	return path;
+}
+
+static void access_path_append_step(AccessPath *path, AccessPathStep *step)
+{
+	if (!path || !step) return;
+	step->next = NULL;
+	if (path->tail) {
+		path->tail->next = step;
+		path->tail = step;
+	} else {
+		path->head = path->tail = step;
+	}
+}
+
+AccessPath *access_path_append_field(AccessPath *path, char *field_name)
+{
+	AccessPathStep *step = (AccessPathStep *)malloc(sizeof(AccessPathStep));
+	step->kind = ACCESS_STEP_FIELD;
+	step->field_name = field_name;
+	step->index_exp = NULL;
+	step->next = NULL;
+	access_path_append_step(path, step);
+	return path;
+}
+
+AccessPath *access_path_append_index(AccessPath *path, EXP *index_exp)
+{
+	AccessPathStep *step = (AccessPathStep *)malloc(sizeof(AccessPathStep));
+	step->kind = ACCESS_STEP_INDEX;
+	step->field_name = NULL;
+	step->index_exp = index_exp;
+	step->next = NULL;
+	access_path_append_step(path, step);
+	return path;
+}
+
+EXP *access_path_address(AccessPath *path)
+{
+	AccessEval eval = access_path_eval_internal(path);
+	return eval.addr;
+}
+
+EXP *access_path_load(AccessPath *path)
+{
+	AccessEval eval = access_path_eval_internal(path);
+	Type *ty = eval.ty;
+	if (!ty) return mk_exp(NULL, NULL, NULL);
+	if (ty->kind == TY_ARRAY) {
+		if (eval.addr && eval.addr->ret) {
+			Type *elem = ty->base;
+			eval.addr->ret->ty = type_ptr(elem);
+		}
+		return eval.addr;
+	}
+	if (ty->kind == TY_STRUCT) {
+		error("cannot use struct value in expression");
+		return mk_exp(NULL, NULL, NULL);
+	}
+	return do_deref(eval.addr);
+}
+
+TAC *access_path_store(AccessPath *path, EXP *rhs)
+{
+	AccessEval eval = access_path_eval_internal(path);
+	Type *ty = eval.ty;
+	if (ty && (ty->kind == TY_STRUCT || ty->kind == TY_ARRAY)) {
+		error("invalid assignment target");
+	}
+	return do_store(eval.addr, rhs);
 }
 
 /* 生成从数组名与下标列表到元素地址的表达式（返回指向元素的指针） */

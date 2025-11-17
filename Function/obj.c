@@ -424,6 +424,7 @@ void asm_code(TAC *c)
 		}
 		out_str(file_s, "\tLOD R%u,R15\n", r);
 		rdesc[r].mod = MODIFIED;
+		asm_write_back(r);
 		return;
 
 		case TAC_OUTPUT:
@@ -539,7 +540,10 @@ void asm_code(TAC *c)
 		case TAC_STORE:
 		{
 			int ra = reg_alloc(c->a);
+			int saved_mod = rdesc[ra].mod;
+			rdesc[ra].mod = MODIFIED; /* prevent reuse of pointer register while loading value */
 			int rb = reg_alloc(c->b);
+			rdesc[ra].mod = saved_mod;
 			Type *elem = NULL;
 			if (c->a && c->a->ty && type_is_ptr(c->a->ty)) elem = type_base(c->a->ty);
 			if (elem && type_is_char(elem)) {

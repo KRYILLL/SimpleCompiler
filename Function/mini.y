@@ -4,12 +4,12 @@
 #include <string.h>
 #include "tac.h"
 
-
 int current_decl_dtype;
+Type *current_decl_type;
+Type *current_struct_def;
 
 int yylex();
 void yyerror(char* msg);
-
 %}
 
 %union
@@ -20,9 +20,10 @@ void yyerror(char* msg);
 	TAC *tac;
 	EXP	*exp;
 	struct Type *ty;
+	AccessPath *path;
 }
 
-%token INT CHAR EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN
+%token INT CHAR STRUCT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN
 %token <string> INTEGER IDENTIFIER TEXT
 %token <character> CHARCONST
 
@@ -31,17 +32,17 @@ void yyerror(char* msg);
 %left '*' '/'
 %right UMINUS
 
-%type <tac> program function_declaration_list function_declaration function parameter_list variable_list statement assignment_statement return_statement if_statement while_statement call_statement block declaration_list declaration statement_list input_statement output_statement
+%type <tac> program function_declaration_list function_declaration function parameter_list variable_list statement assignment_statement return_statement if_statement while_statement call_statement block declaration_list declaration statement_list input_statement output_statement struct_definition struct_field_declaration struct_field_list struct_field_declarator_list struct_field_declarator
 %type <exp> argument_list expression_list expression call_expression
 %type <sym> function_head
-%type <exp> array_idx_list
-%type <ty> arr_decl_dims
+%type <ty> arr_decl_dims type
+%type <path> lvalue
 
 %%
 
 program : function_declaration_list
 {
-	tac_last=$1;
+	tac_last = $1;
 	tac_complete();
 }
 ;
@@ -49,95 +50,170 @@ program : function_declaration_list
 function_declaration_list : function_declaration
 | function_declaration_list function_declaration
 {
-	$$=join_tac($1, $2);
+	$$ = join_tac($1, $2);
 }
 ;
 
 function_declaration : function
 | declaration
+| struct_definition
 ;
 
-type : INT{ current_decl_dtype = DTYPE_INT; }
-| CHAR{ current_decl_dtype = DTYPE_CHAR; }
+type : INT
+{
+	current_decl_dtype = DTYPE_INT;
+	current_decl_type = type_int();
+	$$ = current_decl_type;
+}
+| CHAR
+{
+	current_decl_dtype = DTYPE_CHAR;
+	current_decl_type = type_char();
+	$$ = current_decl_type;
+}
+| STRUCT IDENTIFIER
+{
+	Type *st = type_struct_lookup($2);
+	if (!st) {
+		error("struct type not defined");
+		st = type_int();
+	}
+	current_decl_dtype = DTYPE_INT;
+	current_decl_type = st;
+	$$ = st;
+}//当前decl_type 设置为 struct 类型
 ;
 
 declaration : type variable_list ';'
 {
-	$$=$2;
+	$$ = $2;
+}
+;
+
+struct_definition : STRUCT IDENTIFIER
+{
+	current_struct_def = type_struct_begin($2);
+}
+'{' struct_field_list '}' ';'
+{
+	type_struct_finalize(current_struct_def);
+	current_struct_def = NULL;
+	$$ = NULL;
+}
+;
+
+struct_field_list :
+{
+	$$ = NULL;
+}
+| struct_field_list struct_field_declaration
+{
+	$$ = NULL;
+}
+;
+
+struct_field_declaration : type struct_field_declarator_list ';'
+{
+	$$ = NULL;
+}
+;
+
+struct_field_declarator_list : struct_field_declarator
+{
+	$$ = NULL;
+}
+| struct_field_declarator_list ',' struct_field_declarator
+{
+	$$ = NULL;
+}
+;
+
+struct_field_declarator : IDENTIFIER
+{
+	type_struct_add_field(current_struct_def, $1, current_decl_type);
+	$$ = NULL;
+}
+| '*' IDENTIFIER
+{
+	type_struct_add_field(current_struct_def, $2, type_ptr(current_decl_type));
+	$$ = NULL;
+}
+| IDENTIFIER arr_decl_dims
+{
+	Type *ty = $2 ? $2 : current_decl_type;
+	type_struct_add_field(current_struct_def, $1, ty);
+	$$ = NULL;
 }
 ;
 
 variable_list : IDENTIFIER
 {
-	$$=declare_var_with_type(current_decl_dtype, $1);
-}               
+	$$ = declare_var_type(current_decl_type, $1);
+}
 | '*' IDENTIFIER
 {
-	$$=declare_ptr_var(current_decl_dtype, $2);
+	$$ = declare_var_type(type_ptr(current_decl_type), $2);
 }
 | IDENTIFIER arr_decl_dims
 {
-	/* 声明数组变量：使用构造好的数组类型 */
-	Type *base = (current_decl_dtype==DTYPE_CHAR)? type_char(): type_int();
-	Type *ty = $2 ? $2 : base;
+	Type *ty = $2 ? $2 : current_decl_type;
 	$$ = declare_var_type(ty, $1);
 }
 | variable_list ',' IDENTIFIER
 {
-	$$=join_tac($1, declare_var_with_type(current_decl_dtype, $3));
-}               
+	$$ = join_tac($1, declare_var_type(current_decl_type, $3));
+}
 | variable_list ',' '*' IDENTIFIER
 {
-	$$=join_tac($1, declare_ptr_var(current_decl_dtype, $4));
+	$$ = join_tac($1, declare_var_type(type_ptr(current_decl_type), $4));
 }
 | variable_list ',' IDENTIFIER arr_decl_dims
 {
-	Type *base = (current_decl_dtype==DTYPE_CHAR)? type_char(): type_int();
-	Type *ty = $4 ? $4 : base;
-	$$=join_tac($1, declare_var_type(ty, $3));
+	Type *ty = $4 ? $4 : current_decl_type;
+	$$ = join_tac($1, declare_var_type(ty, $3));
 }
 ;
 
 function : function_head '(' parameter_list ')' block
 {
-	$$=do_func($1, $3, $5);
-	scope=0; /* Leave local scope. */
-	sym_tab_local=NULL; /* Clear local symbol table. */
+	$$ = do_func($1, $3, $5);
+	scope = 0;
+	sym_tab_local = NULL;
 }
 | error
 {
 	error("Bad function syntax");
-	$$=NULL;
+	$$ = NULL;
 }
 ;
 
 function_head : IDENTIFIER
 {
-	$$=declare_func($1);
-	scope=1; /* Enter local scope. */
-	sym_tab_local=NULL; /* Init local symbol table. */
+	$$ = declare_func($1);
+	scope = 1;
+	sym_tab_local = NULL;
 }
 ;
 
 parameter_list : type IDENTIFIER
 {
-	$$=declare_para(current_decl_dtype, $2);
-}               
+	$$ = declare_para_type(current_decl_type, $2);
+}
 | type '*' IDENTIFIER
 {
-	$$=declare_para_ptr(current_decl_dtype, $3);
+	$$ = declare_para_type(type_ptr(current_decl_type), $3);
 }
 | parameter_list ',' type IDENTIFIER
 {
-	$$=join_tac($1, declare_para(current_decl_dtype, $4));
-}               
+	$$ = join_tac($1, declare_para_type(current_decl_type, $4));
+}
 | parameter_list ',' type '*' IDENTIFIER
 {
-	$$=join_tac($1, declare_para_ptr(current_decl_dtype, $5));
+	$$ = join_tac($1, declare_para_type(type_ptr(current_decl_type), $5));
 }
 |
 {
-	$$=NULL;
+	$$ = NULL;
 }
 ;
 
@@ -179,17 +255,27 @@ statement_list : statement
 }               
 ;
 
-assignment_statement : IDENTIFIER '=' expression
+assignment_statement : lvalue '=' expression
 {
-	$$=do_assign(get_var($1), $3);
+	$$ = access_path_store($1, $3);
 }
 | '*' expression '=' expression
 {
-	$$=do_store($2, $4);
+	$$ = do_store($2, $4);
 }
-| IDENTIFIER array_idx_list '=' expression
+;
+
+lvalue : IDENTIFIER
 {
-	$$ = do_array_store(get_var($1), $2, $4);
+	$$ = access_path_new(get_var($1));
+}
+| lvalue '.' IDENTIFIER
+{
+	$$ = access_path_append_field($1, $3);
+}
+| lvalue '[' expression ']'
+{
+	$$ = access_path_append_index($1, $3);
 }
 ;
 
@@ -253,17 +339,13 @@ expression : expression '+' expression
 {
 	$$=mk_exp(NULL, mk_char_const($1), NULL);
 }
-| IDENTIFIER
+| lvalue
 {
-	$$=mk_exp(NULL, get_var($1), NULL);
+	$$ = access_path_load($1);
 }
-| IDENTIFIER array_idx_list
+| '&' lvalue
 {
-	$$ = do_array_access($1, $2, 0);
-}
-| '&' IDENTIFIER
-{
-	$$=do_addr(get_var($2));
+	$$ = access_path_address($2);
 }
 | call_expression
 {
@@ -344,21 +426,10 @@ call_expression : IDENTIFIER '(' argument_list ')'
 ;
 
 /* 数组：下标列表 [expr][expr]... 构成一个链表（头结点是最后一个表达式），在 TAC 里会反转顺序 */
-array_idx_list : '[' expression ']'
-{
-	$$ = link_index_exp(NULL, $2);
-}
-| array_idx_list '[' expression ']'
-{
-	$$ = link_index_exp($1, $3);
-}
-;
-
 /* 数组声明维度：构造成 Type*，按外->内逐层包装 */
 arr_decl_dims : '[' INTEGER ']'
 {
-	Type *base = (current_decl_dtype==DTYPE_CHAR)? type_char(): type_int();
-	$$ = type_array(base, atoi($2));
+	$$ = type_array(current_decl_type, atoi($2));
 }
 | arr_decl_dims '[' INTEGER ']'
 {
