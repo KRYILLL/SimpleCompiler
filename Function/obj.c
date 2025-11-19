@@ -464,8 +464,16 @@ void asm_code(TAC *c)
 
 		case TAC_ACTUAL:
 		r=reg_alloc(c->a);
-		out_str(file_s, "\tSTO (R2+%d),R%u\n", tof+oon, r);
-		if (c->a != NULL) oon += type_size(c->a->ty); else oon += SIZE_INT;
+		{
+			int slot_size = SIZE_INT;
+			if(c->a && c->a->ty)
+			{
+				slot_size = type_size(c->a->ty);
+				if(slot_size < SIZE_INT) slot_size = SIZE_INT;
+			}
+			out_str(file_s, "\tSTO (R2+%d),R%u\n", tof+oon, r);
+			oon += slot_size;
+		}
 		return;
 
 		case TAC_CALL:
@@ -481,8 +489,16 @@ void asm_code(TAC *c)
 
 		case TAC_FORMAL:
 		c->a->scope=1; /* parameter is special local var */
-		c->a->offset=oof;
-		oof -= type_size(c->a->ty);
+		{
+			int slot_size = SIZE_INT;
+			if(c->a && c->a->ty)
+			{
+				slot_size = type_size(c->a->ty);
+				if(slot_size < SIZE_INT) slot_size = SIZE_INT;
+			}
+			c->a->offset=oof;
+			oof -= slot_size;
+		}
 		return;
 
 		case TAC_VAR:

@@ -176,6 +176,10 @@ TAC *do_func(SYM *func, TAC *args, TAC *code)
 	TAC *tend; /* ENDFUNC marker */
 
 	tlab=mk_tac(TAC_LABEL, mk_label(func->name), NULL, NULL);
+	if(func)
+	{
+		func->address = tlab;
+	}
 	tbegin=mk_tac(TAC_BEGINFUNC, NULL, NULL, NULL);
 	tend=mk_tac(TAC_ENDFUNC,   NULL, NULL, NULL);
 
@@ -244,38 +248,51 @@ TAC *declare_array_var_dims(int base_dtype, char *name, int *dims, int ndims)
 	return declare_var_type(t, name);
 }
 
-SYM *declare_func(char *name)
+SYM *declare_func_with_type(char *name, Type *ret_type)
 {
-	SYM *sym=NULL;
+	SYM *sym = lookup_sym(sym_tab_global, name);
+	Type *actual_type = ret_type ? ret_type : type_int();
 
-	sym=lookup_sym(sym_tab_global,name);
-
-	/* name used before declared */
 	if(sym!=NULL)
 	{
 		if(sym->type==SYM_FUNC)
 		{
-			error("func already declared");
-			return NULL;
+			if(sym->address!=NULL)
+			{
+				error("func already declared");
+				return sym;
+			}
+			sym->scope = 0;
+			sym->offset = 0;
+			sym->ty = actual_type;
+			return sym;
 		}
 
 		if(sym->type !=SYM_UNDEF)
 		{
 			error("func name already used");
-			return NULL;
+			return sym;
 		}
-
-		return sym;
 	}
-	
-	
-	sym=mk_sym();
-	sym->type=SYM_FUNC;
-	sym->name=name;
-	sym->address=NULL;
+	else
+	{
+		sym=mk_sym();
+		sym->name=name;
+		insert_sym(&sym_tab_global,sym);
+	}
 
-	insert_sym(&sym_tab_global,sym);
+	sym->type=SYM_FUNC;
+	sym->scope=0;
+	sym->offset=0;
+	sym->address=NULL;
+	sym->ty = actual_type;
+
 	return sym;
+}
+
+SYM *declare_func(char *name)
+{
+	return declare_func_with_type(name, type_int());
 }
 
 TAC *do_assign(SYM *var, EXP *exp)
@@ -708,8 +725,13 @@ EXP *do_call_ret(char *name, EXP *arglist)
 	SYM *ret; /* Where function result will go */
 	TAC *code; /* Resulting code */
 	TAC *temp; /* Temporary for building code */
-
-	ret=mk_tmp(); /* For the result */
+	Type *ret_type = type_int();
+	SYM *func_sym = lookup_sym(sym_tab_global, name);
+	if(func_sym && func_sym->type == SYM_FUNC && func_sym->ty)
+	{
+		ret_type = func_sym->ty;
+	}
+	ret=mk_tmp_of_type(ret_type); /* For the result */
 	code=mk_tac(TAC_VAR, ret, NULL, NULL);
 
 	for(alt=arglist; alt !=NULL; alt=alt->next) code=join_tac(code, alt->tac);

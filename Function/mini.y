@@ -193,6 +193,12 @@ function_head : IDENTIFIER
 	scope = 1;
 	sym_tab_local = NULL;
 }
+| type IDENTIFIER
+{
+	$$ = declare_func_with_type($2, $1);
+	scope = 1;
+	sym_tab_local = NULL;
+}//函数返回值类型
 ;
 
 parameter_list : type IDENTIFIER

@@ -130,6 +130,7 @@ EXP *mk_exp(EXP *next, SYM *ret, TAC *code);
 char *mk_lstr(int i);
 SYM *get_var(char *name); 
 SYM *declare_func(char *name);
+SYM *declare_func_with_type(char *name, struct Type *ret_type);
 TAC *declare_var_with_type(int dtype, char *name);
 TAC *declare_ptr_var(int base_dtype, char *name);
 /* 声明数组变量：dims 为维度数组，ndims 为维度个数 */
