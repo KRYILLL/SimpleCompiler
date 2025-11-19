@@ -6,6 +6,8 @@
 #include "mini.y.h"
 #include "obj.h"
 #include "cfg.h"
+#include "constfold.h"
+#include "deadcode.h"
 
 FILE *file_x, *file_s;
 
@@ -50,6 +52,8 @@ int main(int argc,   char *argv[])
 
 	tac_init();
 	yyparse();
+	constfold_run();
+	deadcode_run();
 	tac_list();
 	
 	/* Build and print CFGs */

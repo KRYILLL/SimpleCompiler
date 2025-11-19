@@ -1,9 +1,9 @@
 all: mini asm machine
 
-mini: main.c mini.l mini.y tac.c tac.h obj.c obj.h cfg.c cfg.h
+mini: main.c mini.l mini.y tac.c tac.h obj.c obj.h cfg.c cfg.h constfold.c constfold.h deadcode.c deadcode.h
 	lex -o mini.l.c mini.l
 	yacc -d -o mini.y.c mini.y
-	gcc -g3 main.c mini.l.c mini.y.c tac.c obj.c cfg.c -o mini
+	gcc -g3 main.c mini.l.c mini.y.c tac.c obj.c cfg.c constfold.c deadcode.c -o mini
 
 asm: asm.l asm.y inst.h
 	lex -o asm.l.c asm.l

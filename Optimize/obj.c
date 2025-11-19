@@ -5,6 +5,8 @@
 #include <time.h>
 #include "tac.h"
 #include "obj.h"
+#include "constfold.h"
+#include "deadcode.h"
 
 /* global var */
 int tos; /* top of static */
@@ -496,6 +498,8 @@ void tac_obj()
 	for(int r=0; r < R_NUM; r++) rdesc[r].var=NULL;
 	
 	asm_head();
+	constfold_emit_report(file_s);
+	deadcode_emit_report(file_s);
 
 	TAC * cur;
 	for(cur=tac_first; cur!=NULL; cur=cur->next)
