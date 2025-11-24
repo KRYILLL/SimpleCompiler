@@ -116,5 +116,8 @@
     1. 增加switch case 相关
 3. tac.c
 
+## v1.1.0
+
+- 优化switch case, 修改类型系统
 
 ## 待定事务

@@ -40,11 +40,7 @@
 #define TAC_ADDR 25 /* a=&b */
 #define TAC_LOAD 26 /* a=*b */
 #define TAC_STORE 27 /* *a=b */
-#define DTYPE_INT 0
-#define DTYPE_CHAR 1
-#define DTYPE_PTR 2
-#define SIZE_INT 4
-#define SIZE_CHAR 1
+
 typedef struct sym
 {
 	/*	
@@ -65,7 +61,7 @@ typedef struct sym
 	struct sym *next;
 	void *etc;
 
-	/* 统一类型系统：首选读取 ty；以下旧字段保持向后兼容（逐步淘汰） */
+	/* 统一类型系统：首选读取 ty */
 	struct Type *ty;   /* 指向统一类型对象 */
 } SYM;
 
@@ -144,10 +140,6 @@ char *mk_lstr(int i);
 SYM *get_var(char *name); 
 SYM *declare_func(char *name);
 SYM *declare_func_with_type(char *name, struct Type *ret_type);
-TAC *declare_var_with_type(int dtype, char *name);
-TAC *declare_ptr_var(int base_dtype, char *name);
-/* 声明数组变量：dims 为维度数组，ndims 为维度个数 */
-TAC *declare_array_var_dims(int base_dtype, char *name, int *dims, int ndims);
 /* 直接用指定 Type 声明变量（数组构造后调用） */
 TAC *declare_var_type(struct Type *ty, char *name);
 TAC *declare_para_type(struct Type *ty, char *name);
@@ -166,6 +158,7 @@ TAC *do_switch(EXP *exp, SwitchCase *cases, TAC *default_code, SYM *break_label)
 void loop_context_enter(SYM *start_label, SYM *continue_label, SYM *break_label);
 void loop_context_leave(void);
 LoopContextInfo *loop_context_current(void);
+LoopContextInfo *loop_context_try_current(void);
 TAC *do_break_stmt(void);
 TAC *do_continue_stmt(void);
 EXP *do_bin( int binop, EXP *exp1, EXP *exp2);

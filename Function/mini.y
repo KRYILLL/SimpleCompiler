@@ -4,7 +4,6 @@
 #include <string.h>
 #include "tac.h"
 
-int current_decl_dtype;
 Type *current_decl_type;
 Type *current_struct_def;
 
@@ -63,13 +62,11 @@ function_declaration : function
 
 type : INT
 {
-	current_decl_dtype = DTYPE_INT;
 	current_decl_type = type_int();
 	$$ = current_decl_type;
 }
 | CHAR
 {
-	current_decl_dtype = DTYPE_CHAR;
 	current_decl_type = type_char();
 	$$ = current_decl_type;
 }
@@ -80,7 +77,6 @@ type : INT
 		error("struct type not defined");
 		st = type_int();
 	}
-	current_decl_dtype = DTYPE_INT;
 	current_decl_type = st;
 	$$ = st;
 }//当前decl_type 设置为 struct 类型
@@ -269,7 +265,10 @@ switch_statement : SWITCH '(' expression ')' switch_header '{' switch_case_list_
 switch_header :
 {
 	SYM *break_label = mk_label(mk_lstr(next_label++));
-	loop_context_enter(NULL, NULL, break_label);
+	LoopContextInfo *enclosing = loop_context_try_current();
+	SYM *start_label = enclosing ? enclosing->start_label : NULL;
+	SYM *continue_label = enclosing ? enclosing->continue_label : NULL;
+	loop_context_enter(start_label, continue_label, break_label);
 	$$ = break_label;
 }
 ;

@@ -45,6 +45,15 @@ LoopContextInfo *loop_context_current(void)
 	return &loop_context_stack[loop_context_depth - 1];
 }
 
+LoopContextInfo *loop_context_try_current(void)
+{
+	if (loop_context_depth <= 0)
+	{
+		return NULL;
+	}
+	return &loop_context_stack[loop_context_depth - 1];
+}
+
 TAC *do_break_stmt(void)
 {
 	LoopContextInfo *ctx = loop_context_current();
@@ -115,7 +124,7 @@ SYM *mk_sym(void)
 	return t;
 }
 
-SYM *mk_var_with_type(int dtype, char *name)
+SYM *mk_var(char *name, Type *ty)
 {
 	SYM *sym=NULL;
 
@@ -137,7 +146,7 @@ SYM *mk_var_with_type(int dtype, char *name)
 	sym->name=name;
 	sym->offset=-1; /* Unset address */
 	/* 统一类型：仅保存 Type* */
-	sym->ty = (dtype == DTYPE_CHAR) ? type_char() : type_int();
+	sym->ty = ty ? ty : type_int();
 
 	if(scope)  
 		insert_sym(&sym_tab_local,sym);
@@ -161,21 +170,6 @@ TAC *join_tac(TAC *c1, TAC *c2)
 
 	t->prev=c1;
 	return c2;
-}
-
-TAC *declare_var_with_type(int dtype, char *name)
-{
-	SYM *s = mk_var_with_type(dtype,name);
-	if (s) {
-		s->ty = (dtype == DTYPE_CHAR) ? type_char() : type_int();
-	}
-	return mk_tac(TAC_VAR, s, NULL, NULL);
-}
-
-TAC *declare_ptr_var(int base_dtype, char *name)
-{
-	Type *base = (base_dtype == DTYPE_CHAR) ? type_char() : type_int();
-	return declare_var_type(type_ptr(base), name);
 }
 
 SYM *mk_char_const(int c)
@@ -251,7 +245,7 @@ SYM *mk_tmp(void)
 
 	name=malloc(12);
 	sprintf(name, "t%d", next_tmp++); /* Set up text */
-	return mk_var_with_type(DTYPE_INT,name);
+	return mk_var(name, type_int());
 }
 
 SYM *mk_tmp_of_type(Type *t)
@@ -260,11 +254,7 @@ SYM *mk_tmp_of_type(Type *t)
 	char *name;
 	name = (char*)malloc(12);
 	sprintf(name, "t%d", next_tmp++);
-	int dtype = (t && t->kind == TY_CHAR) ? DTYPE_CHAR : DTYPE_INT;
-	sym = mk_var_with_type(dtype, name);
-	if (sym) {
-		sym->ty = t ? t : type_int();
-	}
+	sym = mk_var(name, t);
 	return sym;
 }
 
@@ -279,27 +269,14 @@ static EXP *reverse_exp_list(EXP *head)
 
 TAC *declare_var_type(Type *ty, char *name)
 {
-	SYM *s = mk_var_with_type(DTYPE_INT, name); /* dtype 占位 */
-	if (s) s->ty = ty ? ty : type_int();
+	SYM *s = mk_var(name, ty);
 	return mk_tac(TAC_VAR, s, NULL, NULL);
 }
 
 TAC *declare_para_type(Type *ty, char *name)
 {
-	SYM *s = mk_var_with_type(DTYPE_INT, name);
-	if (s) s->ty = ty ? ty : type_int();
+	SYM *s = mk_var(name, ty);
 	return mk_tac(TAC_FORMAL, s, NULL, NULL);
-}
-
-TAC *declare_array_var_dims(int base_dtype, char *name, int *dims, int ndims)
-{
-	Type *t = (base_dtype == DTYPE_CHAR) ? type_char() : type_int();
-	/* 从内层到外层构造：arr[a][b] => array(len=a) of array(len=b) of base? 实际 C 是外到内
-	   这里按外->内构造：t = array(t, dims[0]); t = array(t, dims[1]); ... */
-	for (int i = 0; i < ndims; ++i) {
-		t = type_array(t, dims[i]);
-	}
-	return declare_var_type(t, name);
 }
 
 SYM *declare_func_with_type(char *name, Type *ret_type)
