@@ -106,6 +106,12 @@ typedef struct AccessPath {
 	AccessPathStep *tail;
 } AccessPath;
 
+typedef struct LoopContextInfo {
+	SYM *start_label;
+	SYM *continue_label;
+	SYM *break_label;
+} LoopContextInfo;
+
 /* global var */
 extern FILE *file_x, *file_s;
 extern int yylineno, scope, next_tmp, next_label;
@@ -145,7 +151,13 @@ TAC *do_input(SYM *var);
 TAC *do_call(char *name, EXP *arglist);
 TAC *do_if(EXP *exp, TAC *stmt);
 TAC *do_test(EXP *exp, TAC *stmt1, TAC *stmt2);
-TAC *do_while(EXP *exp, TAC *stmt);
+TAC *do_while(LoopContextInfo *ctx, EXP *exp, TAC *stmt);
+TAC *do_for(LoopContextInfo *ctx, TAC *init, EXP *cond, TAC *post, TAC *body);
+void loop_context_enter(SYM *start_label, SYM *continue_label, SYM *break_label);
+void loop_context_leave(void);
+LoopContextInfo *loop_context_current(void);
+TAC *do_break_stmt(void);
+TAC *do_continue_stmt(void);
 EXP *do_bin( int binop, EXP *exp1, EXP *exp2);
 EXP *do_cmp( int binop, EXP *exp1, EXP *exp2);
 EXP *do_un( int unop, EXP *exp);

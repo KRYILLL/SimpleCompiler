@@ -11,6 +11,60 @@ int scope, next_tmp, next_label;
 SYM *sym_tab_global, *sym_tab_local;
 TAC *tac_first, *tac_last;
 
+#define LOOP_CONTEXT_MAX 128
+static LoopContextInfo loop_context_stack[LOOP_CONTEXT_MAX];
+static int loop_context_depth = 0;
+
+void loop_context_enter(SYM *start_label, SYM *continue_label, SYM *break_label)
+{
+	if(loop_context_depth >= LOOP_CONTEXT_MAX)
+	{
+		error("loop nesting too deep");
+	}
+	loop_context_stack[loop_context_depth].start_label = start_label;
+	loop_context_stack[loop_context_depth].continue_label = continue_label;
+	loop_context_stack[loop_context_depth].break_label = break_label;
+	loop_context_depth++;
+}
+
+void loop_context_leave(void)
+{
+	if(loop_context_depth <= 0)
+	{
+		error("loop context underflow");
+	}
+	loop_context_depth--;
+}
+
+LoopContextInfo *loop_context_current(void)
+{
+	if(loop_context_depth <= 0)
+	{
+		error("loop statement not in scope");
+	}
+	return &loop_context_stack[loop_context_depth - 1];
+}
+
+TAC *do_break_stmt(void)
+{
+	LoopContextInfo *ctx = loop_context_current();
+	if(!ctx->break_label)
+	{
+		error("break without enclosing loop");
+	}
+	return mk_tac(TAC_GOTO, ctx->break_label, NULL, NULL);
+}
+
+TAC *do_continue_stmt(void)
+{
+	LoopContextInfo *ctx = loop_context_current();
+	if(!ctx->continue_label)
+	{
+		error("continue without enclosing loop");
+	}
+	return mk_tac(TAC_GOTO, ctx->continue_label, NULL, NULL);
+}
+
 void tac_init()
 {
 	scope=0;
@@ -789,14 +843,79 @@ TAC *do_test(EXP *exp, TAC *stmt1, TAC *stmt2)
 	return label2;
 }
 
-TAC *do_while(EXP *exp, TAC *stmt) 
+TAC *do_while(LoopContextInfo *ctx, EXP *exp, TAC *stmt)
 {
-	TAC *label=mk_tac(TAC_LABEL, mk_label(mk_lstr(next_label++)), NULL, NULL);
-	TAC *code=mk_tac(TAC_GOTO, label->a, NULL, NULL);
+	if(ctx == NULL)
+	{
+		error("internal error: missing loop context");
+	}
+	EXP *cond = exp;
+	if(cond == NULL)
+	{
+		cond = mk_exp(NULL, mk_int_const(1), NULL);
+	}
 
-	code->prev=stmt; /* Bolt on the goto */
+	TAC *branch = mk_tac(TAC_IFZ, ctx->break_label, cond->ret, NULL);
+	branch->prev = cond->tac;
+	join_tac(branch, stmt);
+	TAC *tail = (stmt != NULL) ? stmt : branch;
 
-	return join_tac(label, do_if(exp, code));
+	TAC *continue_label_tac = NULL;
+	TAC *tail_after_continue = tail;
+	if(ctx->continue_label && ctx->continue_label != ctx->start_label)
+	{
+		continue_label_tac = mk_tac(TAC_LABEL, ctx->continue_label, NULL, NULL);
+		continue_label_tac->prev = tail;
+		tail_after_continue = continue_label_tac;
+	}
+
+	TAC *back = mk_tac(TAC_GOTO, ctx->start_label, NULL, NULL);
+	back->prev = tail_after_continue;
+
+	TAC *exit_label = mk_tac(TAC_LABEL, ctx->break_label, NULL, NULL);
+	exit_label->prev = back;
+
+	TAC *start_label = mk_tac(TAC_LABEL, ctx->start_label, NULL, NULL);
+	return join_tac(start_label, exit_label);
+}
+
+TAC *do_for(LoopContextInfo *ctx, TAC *init, EXP *cond, TAC *post, TAC *body)
+{
+	if(ctx == NULL)
+	{
+		error("internal error: missing loop context");
+	}
+	EXP *loop_cond = cond;
+	if(loop_cond == NULL)
+	{
+		loop_cond = mk_exp(NULL, mk_int_const(1), NULL);
+	}
+
+	TAC *branch = mk_tac(TAC_IFZ, ctx->break_label, loop_cond->ret, NULL);
+	branch->prev = loop_cond->tac;
+	join_tac(branch, body);
+	TAC *tail = (body != NULL) ? body : branch;
+
+	TAC *continue_label_tac = mk_tac(TAC_LABEL, ctx->continue_label, NULL, NULL);
+	continue_label_tac->prev = tail;
+
+	TAC *post_tail = continue_label_tac;
+	if(post != NULL)
+	{
+		join_tac(continue_label_tac, post);
+		post_tail = post;
+	}
+
+	TAC *back = mk_tac(TAC_GOTO, ctx->start_label, NULL, NULL);
+	back->prev = post_tail;
+
+	TAC *exit_label = mk_tac(TAC_LABEL, ctx->break_label, NULL, NULL);
+	exit_label->prev = back;
+
+	TAC *start_label = mk_tac(TAC_LABEL, ctx->start_label, NULL, NULL);
+	TAC *loop_code = join_tac(start_label, exit_label);
+
+	return join_tac(init, loop_code);
 }
 
 SYM *get_var(char *name)

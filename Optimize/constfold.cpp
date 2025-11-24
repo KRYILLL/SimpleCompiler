@@ -1,64 +1,32 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <cstring>
 #include "constfold.h"
 
-typedef struct cf_log_entry {
-    char *text;
-    struct cf_log_entry *next;
-} CF_LOG_ENTRY;
+namespace {
+std::vector<std::string> g_log;
+int g_folds_applied = 0;
 
-static CF_LOG_ENTRY *log_head = NULL;
-static CF_LOG_ENTRY *log_tail = NULL;
-static int folds_applied = 0;//记录折叠次数
-
-static void log_clear(void)
+void log_clear()
 {
-    CF_LOG_ENTRY *node = log_head;
-    while(node)
-    {
-        CF_LOG_ENTRY *next = node->next;
-        free(node->text);
-        free(node);
-        node = next;
-    }
-    log_head = NULL;
-    log_tail = NULL;
-    folds_applied = 0;
+    g_log.clear();
+    g_folds_applied = 0;
 }
 
-static void log_append(const char *msg)
+void log_append(const std::string &msg)
 {
-    CF_LOG_ENTRY *entry = (CF_LOG_ENTRY *)malloc(sizeof(CF_LOG_ENTRY));
-    if(entry == NULL) return;
-    entry->text = strdup(msg);
-    entry->next = NULL;
-    if(entry->text == NULL)
-    {
-        free(entry);
-        return;
-    }
-
-    if(log_tail == NULL)
-    {
-        log_head = entry;
-        log_tail = entry;
-    }
-    else
-    {
-        log_tail->next = entry;
-        log_tail = entry;
-    }
+    g_log.push_back(msg);
 }
 
-static int sym_is_int(const SYM *s, int *value)
+bool sym_is_int(const SYM *s, int *value)
 {
-    if(s == NULL || s->type != SYM_INT) return 0;
+    if(s == NULL || s->type != SYM_INT) return false;
     if(value) *value = s->value;
-    return 1;
-}//判断符号是否为整数常量
+    return true;
+}
 
-static const char *op_to_str(int op)
+const char *op_to_str(int op)
 {
     switch(op)
     {
@@ -76,26 +44,27 @@ static const char *op_to_str(int op)
     }
 }
 
-static void fold_into_copy(TAC *t, int result, const char *detail)
+void fold_into_copy(TAC *t, int result, const std::string &detail)
 {
     if(t == NULL || t->a == NULL) return;
     SYM *k = mk_const(result);
     t->op = TAC_COPY;
     t->b = k;
     t->c = NULL;
-    folds_applied++;
+    g_folds_applied++;
 
-    char line[128];
-    snprintf(line, sizeof(line), "%s = %s", t->a->name, detail);
-    log_append(line);
+    std::ostringstream line;
+    line << t->a->name << " = " << detail;
+    log_append(line.str());
 }
 
-static void try_fold_binary(TAC *t)
+void try_fold_binary(TAC *t)
 {
-    int lhs, rhs;
+    int lhs = 0;
+    int rhs = 0;
     if(!sym_is_int(t->b, &lhs) || !sym_is_int(t->c, &rhs)) return;
 
-    int result;
+    int result = 0;
     switch(t->op)
     {
         case TAC_ADD:
@@ -133,26 +102,27 @@ static void try_fold_binary(TAC *t)
             return;
     }
 
-    char detail[96];
-    snprintf(detail, sizeof(detail), "%d %s %d -> %d", lhs, op_to_str(t->op), rhs, result);
-    fold_into_copy(t, result, detail);
+    std::ostringstream detail;
+    detail << lhs << ' ' << op_to_str(t->op) << ' ' << rhs << " -> " << result;
+    fold_into_copy(t, result, detail.str());
 }
 
-static void try_fold_unary(TAC *t)
+void try_fold_unary(TAC *t)
 {
-    int value;
+    int value = 0;
     if(!sym_is_int(t->b, &value)) return;
 
     if(t->op == TAC_NEG)
     {
         int result = -value;
-        char detail[64];
-        snprintf(detail, sizeof(detail), "-(%d) -> %d", value, result);
-        fold_into_copy(t, result, detail);
+        std::ostringstream detail;
+        detail << "-(" << value << ") -> " << result;
+        fold_into_copy(t, result, detail.str());
     }
 }
+}
 
-void constfold_run(void)
+extern "C" void constfold_run(void)
 {
     log_clear();
 
@@ -181,22 +151,22 @@ void constfold_run(void)
     }
 }
 
-void constfold_emit_report(FILE *out)
+extern "C" void constfold_emit_report(FILE *out)
 {
     if(out == NULL) return;
 
     out_str(out, "\n\t# constant folding pass\n");
-    if(folds_applied == 0)
+    if(g_folds_applied == 0)
     {
         out_str(out, "\t#   no changes\n\n");
     }
     else
     {
-        for(CF_LOG_ENTRY *node = log_head; node != NULL; node = node->next)
+        for(const std::string &line : g_log)
         {
-            out_str(out, "\t#   %s\n", node->text);
+            out_str(out, "\t#   %s\n", line.c_str());
         }
-        out_str(out, "\t#   total folds: %d\n\n", folds_applied);
+        out_str(out, "\t#   total folds: %d\n\n", g_folds_applied);
     }
 
     log_clear();

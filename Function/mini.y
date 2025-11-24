@@ -23,7 +23,7 @@ void yyerror(char* msg);
 	AccessPath *path;
 }
 
-%token INT CHAR STRUCT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FUNC INPUT OUTPUT RETURN
+%token INT CHAR STRUCT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FOR BREAK CONTINUE FUNC INPUT OUTPUT RETURN
 %token <string> INTEGER IDENTIFIER TEXT
 %token <character> CHARCONST
 
@@ -32,8 +32,8 @@ void yyerror(char* msg);
 %left '*' '/'
 %right UMINUS
 
-%type <tac> program function_declaration_list function_declaration function parameter_list variable_list statement assignment_statement return_statement if_statement while_statement call_statement block declaration_list declaration statement_list input_statement output_statement struct_definition struct_field_declaration struct_field_list struct_field_declarator_list struct_field_declarator
-%type <exp> argument_list expression_list expression call_expression
+%type <tac> program function_declaration_list function_declaration function parameter_list variable_list statement assignment_statement return_statement if_statement while_statement for_statement break_statement continue_statement call_statement block declaration_list declaration statement_list input_statement output_statement struct_definition struct_field_declaration struct_field_list struct_field_declarator_list struct_field_declarator for_init_opt for_post_opt
+%type <exp> argument_list expression_list expression call_expression for_condition_opt
 %type <sym> function_head
 %type <ty> arr_decl_dims type
 %type <path> lvalue
@@ -230,11 +230,95 @@ statement : assignment_statement ';'
 | return_statement ';'
 | if_statement
 | while_statement
+| for_statement
+| break_statement ';'
+| continue_statement ';'
 | block
 | error
 {
 	error("Bad statement syntax");
 	$$=NULL;
+}
+;
+
+for_statement : FOR '(' for_init_opt ';' for_condition_opt ';' for_post_opt ')'
+{
+	SYM *start_label = mk_label(mk_lstr(next_label++));
+	SYM *continue_label = mk_label(mk_lstr(next_label++));
+	SYM *break_label = mk_label(mk_lstr(next_label++));
+	loop_context_enter(start_label, continue_label, break_label);
+}
+ block
+{
+	LoopContextInfo *ctx = loop_context_current();
+	$$ = do_for(ctx, $3, $5, $7, $10);
+	loop_context_leave();
+}
+;
+
+break_statement : BREAK
+{
+	$$ = do_break_stmt();
+}
+;
+
+continue_statement : CONTINUE
+{
+	$$ = do_continue_stmt();
+}
+;
+
+for_init_opt : assignment_statement
+{
+	$$ = $1;
+}
+| call_statement
+{
+	$$ = $1;
+}
+| input_statement
+{
+	$$ = $1;
+}
+| output_statement
+{
+	$$ = $1;
+}
+|
+{
+	$$ = NULL;
+}
+;
+
+for_condition_opt : expression
+{
+	$$ = $1;
+}
+|
+{
+	$$ = NULL;
+}
+;
+
+for_post_opt : assignment_statement
+{
+	$$ = $1;
+}
+| call_statement
+{
+	$$ = $1;
+}
+| input_statement
+{
+	$$ = $1;
+}
+| output_statement
+{
+	$$ = $1;
+}
+|
+{
+	$$ = NULL;
 }
 ;
 
@@ -413,9 +497,17 @@ if_statement : IF '(' expression ')' block
 }
 ;
 
-while_statement : WHILE '(' expression ')' block
+while_statement : WHILE '(' expression ')'
 {
-	$$=do_while($3, $5);
+	SYM *start_label = mk_label(mk_lstr(next_label++));
+	SYM *break_label = mk_label(mk_lstr(next_label++));
+	loop_context_enter(start_label, start_label, break_label);
+}
+block
+{
+	LoopContextInfo *ctx = loop_context_current();
+	$$=do_while(ctx, $3, $6);
+	loop_context_leave();
 }               
 ;
 

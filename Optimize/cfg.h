@@ -3,6 +3,10 @@
 
 #include "tac.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct basic_block BASIC_BLOCK;
 typedef struct bb_list BB_LIST;
 
@@ -42,5 +46,9 @@ void cfg_print_all(CFG_ALL *all);
 
 /* Free memory of CFGs. */
 void cfg_free_all(CFG_ALL *all);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* CFG_H */

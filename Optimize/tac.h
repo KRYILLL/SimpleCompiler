@@ -2,6 +2,12 @@
 #ifndef TAC_H
 #define TAC_H
 
+#include <stdio.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* type of symbol */
 #define SYM_UNDEF 0
 #define SYM_VAR 1
@@ -114,5 +120,9 @@ EXP *do_cmp( int binop, EXP *exp1, EXP *exp2);
 EXP *do_un( int unop, EXP *exp);
 EXP *do_call_ret(char *name, EXP *arglist);
 void error(const char *format, ...);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TAC_H */
