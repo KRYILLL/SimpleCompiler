@@ -21,9 +21,10 @@ void yyerror(char* msg);
 	EXP	*exp;
 	struct Type *ty;
 	AccessPath *path;
+	SwitchCase *scase;
 }
 
-%token INT CHAR STRUCT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FOR BREAK CONTINUE FUNC INPUT OUTPUT RETURN
+%token INT CHAR STRUCT EQ NE LT LE GT GE UMINUS IF ELSE WHILE FOR SWITCH CASE DEFAULT BREAK CONTINUE FUNC INPUT OUTPUT RETURN
 %token <string> INTEGER IDENTIFIER TEXT
 %token <character> CHARCONST
 
@@ -32,11 +33,12 @@ void yyerror(char* msg);
 %left '*' '/'
 %right UMINUS
 
-%type <tac> program function_declaration_list function_declaration function parameter_list variable_list statement assignment_statement return_statement if_statement while_statement for_statement break_statement continue_statement call_statement block declaration_list declaration statement_list input_statement output_statement struct_definition struct_field_declaration struct_field_list struct_field_declarator_list struct_field_declarator for_init_opt for_post_opt
+%type <tac> program function_declaration_list function_declaration function parameter_list variable_list statement assignment_statement return_statement if_statement while_statement for_statement switch_statement break_statement continue_statement call_statement block declaration_list declaration statement_list input_statement output_statement struct_definition struct_field_declaration struct_field_list struct_field_declarator_list struct_field_declarator for_init_opt for_post_opt switch_default_opt case_statement_list
 %type <exp> argument_list expression_list expression call_expression for_condition_opt
-%type <sym> function_head
+%type <sym> function_head switch_header case_constant
 %type <ty> arr_decl_dims type
 %type <path> lvalue
+%type <scase> switch_case_list switch_case_list_opt switch_case
 
 %%
 
@@ -231,6 +233,7 @@ statement : assignment_statement ';'
 | if_statement
 | while_statement
 | for_statement
+| switch_statement
 | break_statement ';'
 | continue_statement ';'
 | block
@@ -253,6 +256,78 @@ for_statement : FOR '(' for_init_opt ';' for_condition_opt ';' for_post_opt ')'
 	LoopContextInfo *ctx = loop_context_current();
 	$$ = do_for(ctx, $3, $5, $7, $10);
 	loop_context_leave();
+}
+;
+
+switch_statement : SWITCH '(' expression ')' switch_header '{' switch_case_list_opt switch_default_opt '}'
+{
+	$$ = do_switch($3, $7, $8, $5);
+	loop_context_leave();
+}
+;
+
+switch_header :
+{
+	SYM *break_label = mk_label(mk_lstr(next_label++));
+	loop_context_enter(NULL, NULL, break_label);
+	$$ = break_label;
+}
+;
+//确保返回，通用退出
+
+switch_case_list_opt : switch_case_list
+{
+	$$ = $1;
+}
+|
+{
+	$$ = NULL;
+}
+;
+
+switch_case_list : switch_case_list switch_case
+{
+	$$ = switch_case_append($1, $2);
+}
+| switch_case
+{
+	$$ = $1;
+}
+;
+
+switch_case : CASE case_constant ':' case_statement_list
+{
+	$$ = switch_case_new($2, $4);
+}
+;
+
+case_statement_list : case_statement_list statement
+{
+	$$ = join_tac($1, $2);
+}
+|
+{
+	$$ = NULL;
+}
+;
+
+switch_default_opt : DEFAULT ':' case_statement_list
+{
+	$$ = $3;
+}
+|
+{
+	$$ = NULL;
+}
+;
+
+case_constant : INTEGER
+{
+	$$ = mk_int_const(atoi($1));
+}
+| CHARCONST
+{
+	$$ = mk_char_const($1);
 }
 ;
 

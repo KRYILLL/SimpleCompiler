@@ -918,6 +918,116 @@ TAC *do_for(LoopContextInfo *ctx, TAC *init, EXP *cond, TAC *post, TAC *body)
 	return join_tac(init, loop_code);
 }
 
+static TAC *append_sequence(TAC *tail, TAC *seq)
+{
+	if (!seq) return tail;
+	if (tail) {
+		seq = join_tac(tail, seq);
+		return seq;
+	}
+	return seq;
+}
+
+static TAC *append_single(TAC *tail, TAC *instr)
+{
+	if (!instr) return tail;
+	if (tail) instr->prev = tail;
+	return instr;
+}
+
+SwitchCase *switch_case_new(SYM *value, TAC *code)
+{
+	SwitchCase *sc = (SwitchCase *)malloc(sizeof(SwitchCase));
+	if (!sc) {
+		error("out of memory");
+		return NULL;
+	}
+	sc->value = value;
+	sc->code = code;
+	sc->label = NULL;
+	sc->next = NULL;
+	return sc;
+}
+
+SwitchCase *switch_case_append(SwitchCase *list, SwitchCase *item)
+{
+	if (!item) return list;
+	item->next = NULL;
+	if (!list) return item;
+	SwitchCase *cur = list;
+	while (cur->next) cur = cur->next;
+	cur->next = item;
+	return list;
+}
+
+TAC *do_switch(EXP *exp, SwitchCase *cases, TAC *default_code, SYM *break_label)
+{
+	if (!exp || !exp->ret) {
+		error("invalid switch expression");
+		return NULL;
+	}
+	SYM *exit_label = break_label;
+	if (!exit_label) {
+		exit_label = mk_label(mk_lstr(next_label++));
+	}
+
+	for (SwitchCase *c = cases; c; c = c->next) {
+		if (!c->label) {
+			c->label = mk_label(mk_lstr(next_label++));
+		}
+	}
+
+	SYM *default_label = default_code ? mk_label(mk_lstr(next_label++)) : exit_label;
+
+	TAC *dispatch_tail = exp->tac;
+
+	if (cases) {
+		for (SwitchCase *curr = cases; curr; curr = curr->next) {
+			if (!curr->value) {
+				error("case label requires constant");
+				curr->value = mk_int_const(0);
+			}
+			SYM *next_check = curr->next ? mk_label(mk_lstr(next_label++)) : default_label;
+			EXP *lhs = mk_exp(NULL, exp->ret, NULL);
+			EXP *rhs = mk_exp(NULL, curr->value, NULL);
+			EXP *cmp = do_cmp(TAC_EQ, lhs, rhs);
+			dispatch_tail = append_sequence(dispatch_tail, cmp->tac);
+			TAC *ifz = mk_tac(TAC_IFZ, next_check, cmp->ret, NULL);
+			dispatch_tail = append_single(dispatch_tail, ifz);
+			TAC *goto_case = mk_tac(TAC_GOTO, curr->label, NULL, NULL);
+			dispatch_tail = append_single(dispatch_tail, goto_case);
+			if (curr->next) {
+				TAC *next_label_tac = mk_tac(TAC_LABEL, next_check, NULL, NULL);
+				dispatch_tail = append_single(dispatch_tail, next_label_tac);
+			}
+		}
+	} else if (default_label != exit_label) {
+		TAC *goto_default = mk_tac(TAC_GOTO, default_label, NULL, NULL);
+		dispatch_tail = append_single(dispatch_tail, goto_default);
+	}
+
+	TAC *tail = dispatch_tail;
+
+	for (SwitchCase *curr = cases; curr; curr = curr->next) {
+		TAC *case_label_tac = mk_tac(TAC_LABEL, curr->label, NULL, NULL);
+		tail = append_single(tail, case_label_tac);
+		tail = append_sequence(tail, curr->code);
+	}
+
+	if (default_label != exit_label) {
+		TAC *default_label_tac = mk_tac(TAC_LABEL, default_label, NULL, NULL);
+		tail = append_single(tail, default_label_tac);
+		tail = append_sequence(tail, default_code);
+	} else {
+		tail = append_sequence(tail, default_code);
+	}
+
+	TAC *exit_label_tac = mk_tac(TAC_LABEL, exit_label, NULL, NULL);
+	tail = append_single(tail, exit_label_tac);
+
+	return tail;
+}
+
 SYM *get_var(char *name)
 {
 	SYM *sym=NULL; /* Pointer to looked up symbol */

@@ -10,7 +10,7 @@ main()
 		i=i+1;
 		if(i>10)
 		{
-			output "break"
+			output "break";
 			break;
 		}		
 	}
@@ -22,7 +22,7 @@ main()
 		i=i+1;
 		if(i==10)
 		{
-			output "continue"
+			output "continue";
 			continue;
 		}	
 	}

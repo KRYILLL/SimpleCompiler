@@ -27,6 +27,12 @@
 
 "for"  {  return FOR;  }
 
+"switch" { return SWITCH; }
+
+"case" { return CASE; }
+
+"default" { return DEFAULT; }
+
 "break" { return BREAK; }
 
 "continue" { return CONTINUE; }

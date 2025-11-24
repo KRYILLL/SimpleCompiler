@@ -112,6 +112,13 @@ typedef struct LoopContextInfo {
 	SYM *break_label;
 } LoopContextInfo;
 
+typedef struct SwitchCase {
+	SYM *value;
+	TAC *code;
+	SYM *label;
+	struct SwitchCase *next;
+} SwitchCase;
+
 /* global var */
 extern FILE *file_x, *file_s;
 extern int yylineno, scope, next_tmp, next_label;
@@ -153,6 +160,9 @@ TAC *do_if(EXP *exp, TAC *stmt);
 TAC *do_test(EXP *exp, TAC *stmt1, TAC *stmt2);
 TAC *do_while(LoopContextInfo *ctx, EXP *exp, TAC *stmt);
 TAC *do_for(LoopContextInfo *ctx, TAC *init, EXP *cond, TAC *post, TAC *body);
+SwitchCase *switch_case_new(SYM *value, TAC *code);
+SwitchCase *switch_case_append(SwitchCase *list, SwitchCase *item);
+TAC *do_switch(EXP *exp, SwitchCase *cases, TAC *default_code, SYM *break_label);
 void loop_context_enter(SYM *start_label, SYM *continue_label, SYM *break_label);
 void loop_context_leave(void);
 LoopContextInfo *loop_context_current(void);
