@@ -1,5 +1,4 @@
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -58,16 +57,30 @@ struct ExprKeyHash {
     }
 };
 
-struct ExprEntry {
-    SYM *result = nullptr;
-};
-
 std::vector<std::string> *g_log = nullptr;
 int g_eliminated = 0;
 
-std::unordered_map<ExprKey, ExprEntry, ExprKeyHash> g_expr_map;
-std::unordered_map<SYM*, std::unordered_set<ExprKey, ExprKeyHash>> g_sym_to_keys;
-std::unordered_map<SYM*, std::unordered_set<ExprKey, ExprKeyHash>> g_result_to_keys;
+struct ExpressionDef {
+    int expr_id = -1;
+    SYM *result = nullptr;
+};
+
+struct InstructionInfo {
+    TAC *tac = nullptr;
+    SYM *def = nullptr;
+    int expr_id = -1;
+    int expr_def_id = -1;
+    bool kill_all = false;
+    std::vector<int> succ;
+    std::vector<int> pred;
+    std::vector<int> kill_expr_ids;
+    std::vector<int> kill_def_ids;
+    std::vector<int> in_values;
+    std::vector<int> out_values;
+};
+
+constexpr int VALUE_UNAVAILABLE = -1;
+constexpr int VALUE_CONFLICT = -2; // expression seen on all preds but with conflicting definitions
 
 void log_append(const std::string &line)
 {
@@ -112,107 +125,11 @@ bool is_expression_candidate(TAC *t)
     }
 }
 
-void remove_expr_from_symbol(SYM *sym, const ExprKey &key)
-{
-    if(sym == nullptr) return;
-    auto it = g_sym_to_keys.find(sym);
-    if(it == g_sym_to_keys.end()) return;
-    it->second.erase(key);
-    if(it->second.empty())
-    {
-        g_sym_to_keys.erase(it);
-    }
-}
-
-void erase_expression(const ExprKey &key)
-{
-    auto it = g_expr_map.find(key);
-    if(it == g_expr_map.end()) return;
-    const ExprKey stored = key;
-    SYM *result = it->second.result;
-    remove_expr_from_symbol(stored.lhs, key);
-    remove_expr_from_symbol(stored.rhs, key);
-    if(result)
-    {
-        auto itRes = g_result_to_keys.find(result);
-        if(itRes != g_result_to_keys.end())
-        {
-            itRes->second.erase(key);
-            if(itRes->second.empty())
-            {
-                g_result_to_keys.erase(itRes);
-            }
-        }
-    }
-    g_expr_map.erase(it);
-}
-
-void invalidate_symbol(SYM *sym)
-{
-    if(sym == nullptr) return;
-    std::unordered_set<ExprKey, ExprKeyHash> keys;
-
-    auto opIt = g_sym_to_keys.find(sym);
-    if(opIt != g_sym_to_keys.end())
-    {
-        keys.insert(opIt->second.begin(), opIt->second.end());
-    }
-
-    auto resIt = g_result_to_keys.find(sym);
-    if(resIt != g_result_to_keys.end())
-    {
-        keys.insert(resIt->second.begin(), resIt->second.end());
-    }
-
-    for(const ExprKey &key : keys)
-    {
-        erase_expression(key);
-    }
-
-    g_sym_to_keys.erase(sym);
-    g_result_to_keys.erase(sym);
-}
-
-void clear_all()
-{
-    g_expr_map.clear();
-    g_sym_to_keys.clear();
-    g_result_to_keys.clear();
-}
-
 const char *sym_name(SYM *sym)
 {
     if(sym == nullptr) return "<null>";
     if(sym->name != nullptr) return sym->name;
     return "<temp>";
-}
-
-bool is_block_boundary_before(const TAC *t)
-{
-    if(t == nullptr) return false;
-    switch(t->op)
-    {
-        case TAC_BEGINFUNC:
-        case TAC_LABEL:
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool is_block_boundary_after(const TAC *t)
-{
-    if(t == nullptr) return false;
-    switch(t->op)
-    {
-        case TAC_GOTO:
-        case TAC_IFZ:
-        case TAC_RETURN:
-        case TAC_ENDFUNC:
-            return true;
-        default:
-            return false;
-    }
 }
 
 bool is_global_side_effect(const TAC *t)
@@ -255,21 +172,21 @@ SYM *tac_def(TAC *t)
     }
 }
 
-void register_expression(const ExprKey &key, SYM *result)
+int combine_values(int lhs, int rhs)
 {
-    g_expr_map[key] = ExprEntry{result};
-    if(key.lhs)
+    if(lhs == VALUE_UNAVAILABLE || rhs == VALUE_UNAVAILABLE)
     {
-        g_sym_to_keys[key.lhs].insert(key);
+        return VALUE_UNAVAILABLE;
     }
-    if(key.rhs)
+    if(lhs == VALUE_CONFLICT || rhs == VALUE_CONFLICT)
     {
-        g_sym_to_keys[key.rhs].insert(key);
+        return VALUE_CONFLICT;
     }
-    if(result)
+    if(lhs == rhs)
     {
-        g_result_to_keys[result].insert(key);
+        return lhs;
     }
+    return VALUE_CONFLICT;
 }
 
 } // namespace
@@ -278,7 +195,6 @@ extern "C" void cse_reset(void)
 {
     g_log = nullptr;
     g_eliminated = 0;
-    clear_all();
 }
 
 extern "C" int cse_run(void)
@@ -286,64 +202,254 @@ extern "C" int cse_run(void)
     std::vector<std::string> run_log;
     g_log = &run_log;
     g_eliminated = 0;
-    clear_all();
-
+    std::vector<TAC*> sequence;
     for(TAC *cur = tac_first; cur != nullptr; cur = cur->next)
     {
-        if(is_block_boundary_before(cur))
+        sequence.push_back(cur);
+    }
+
+    if(sequence.empty())
+    {
+        g_log = nullptr;
+        optlog_record(OPT_PASS_CSE, nullptr, 0, 0);
+        return 0;
+    }
+
+    std::vector<InstructionInfo> infos(sequence.size());
+    std::unordered_map<SYM*, int> label_map;
+    std::unordered_map<ExprKey, int, ExprKeyHash> expr_index_map;
+    std::unordered_map<SYM*, std::vector<int>> exprs_by_symbol;
+    std::unordered_map<SYM*, std::vector<int>> defs_by_result;
+    std::vector<ExpressionDef> expr_defs;
+
+    for(size_t i = 0; i < sequence.size(); ++i)
+    {
+        TAC *t = sequence[i];
+        InstructionInfo &info = infos[i];
+        info.tac = t;
+        info.def = tac_def(t);
+        info.kill_all = is_global_side_effect(t) || (t && t->op == TAC_BEGINFUNC);
+
+        if(t->op == TAC_LABEL && t->a)
         {
-            clear_all();
+            label_map[t->a] = static_cast<int>(i);
         }
 
-        if(is_global_side_effect(cur))
+        if(is_expression_candidate(t))
         {
-            clear_all();
-        }
-
-        SYM *def = tac_def(cur);
-        if(def)
-        {
-            invalidate_symbol(def);
-        }
-
-        if(is_expression_candidate(cur))
-        {
-            ExprKey key = make_key(cur);
-            auto it = g_expr_map.find(key);
-            if(it != g_expr_map.end())
+            ExprKey key = make_key(t);
+            auto it = expr_index_map.find(key);
+            int expr_id;
+            if(it == expr_index_map.end())
             {
-                SYM *replacement = it->second.result;
-                if(replacement && replacement != cur->a)
+                expr_id = static_cast<int>(expr_index_map.size());
+                expr_index_map.emplace(key, expr_id);
+                if(key.lhs)
                 {
-                    cur->op = TAC_COPY;
-                    cur->b = replacement;
-                    cur->c = nullptr;
-                    g_eliminated++;
+                    exprs_by_symbol[key.lhs].push_back(expr_id);
+                }
+                if(key.rhs)
+                {
+                    exprs_by_symbol[key.rhs].push_back(expr_id);
+                }
+            }
+            else
+            {
+                expr_id = it->second;
+            }
 
-                    std::ostringstream msg;
-                    msg << "eliminated redundant " << sym_name(cur->a)
-                        << " using " << sym_name(replacement);
-                    log_append(msg.str());
+            info.expr_id = expr_id;
+            info.expr_def_id = static_cast<int>(expr_defs.size());
+            expr_defs.push_back(ExpressionDef{expr_id, t->a});
+            if(t->a)
+            {
+                defs_by_result[t->a].push_back(info.expr_def_id);
+            }
+        }
+    }
 
-                    if(def)
+    const int expr_count = static_cast<int>(expr_index_map.size());
+    if(expr_count == 0)
+    {
+        g_log = nullptr;
+        optlog_record(OPT_PASS_CSE, nullptr, 0, 0);
+        return 0;
+    }
+
+    auto next_index = [&](size_t idx) -> int {
+        return (idx + 1 < sequence.size()) ? static_cast<int>(idx + 1) : -1;
+    };
+
+    for(size_t i = 0; i < infos.size(); ++i)
+    {
+        TAC *t = infos[i].tac;
+        switch(t->op)
+        {
+            case TAC_GOTO:
+            {
+                int target = -1;
+                if(t->a)
+                {
+                    auto it = label_map.find(t->a);
+                    if(it != label_map.end())
                     {
-                        invalidate_symbol(cur->a);
+                        target = it->second;
                     }
-                    if(is_block_boundary_after(cur) || is_global_side_effect(cur))
+                }
+                if(target >= 0) infos[i].succ.push_back(target);
+                break;
+            }
+            case TAC_IFZ:
+            {
+                int target = -1;
+                if(t->a)
+                {
+                    auto it = label_map.find(t->a);
+                    if(it != label_map.end())
                     {
-                        clear_all();
+                        target = it->second;
                     }
-                    continue;
+                }
+                if(target >= 0) infos[i].succ.push_back(target);
+                int fall = next_index(i);
+                if(fall >= 0) infos[i].succ.push_back(fall);
+                break;
+            }
+            case TAC_RETURN:
+            case TAC_ENDFUNC:
+                break;
+            default:
+            {
+                int fall = next_index(i);
+                if(fall >= 0) infos[i].succ.push_back(fall);
+                break;
+            }
+        }
+    }
+
+    for(size_t i = 0; i < infos.size(); ++i)
+    {
+        for(int succ : infos[i].succ)
+        {
+            if(succ >= 0 && static_cast<size_t>(succ) < infos.size())
+            {
+                infos[succ].pred.push_back(static_cast<int>(i));
+            }
+        }
+    }
+
+    for(InstructionInfo &info : infos)
+    {
+        if(info.def)
+        {
+            auto it_expr = exprs_by_symbol.find(info.def);
+            if(it_expr != exprs_by_symbol.end())
+            {
+                info.kill_expr_ids = it_expr->second;
+            }
+            auto it_def = defs_by_result.find(info.def);
+            if(it_def != defs_by_result.end())
+            {
+                info.kill_def_ids = it_def->second;
+            }
+        }
+        info.in_values.assign(expr_count, VALUE_UNAVAILABLE);
+        info.out_values.assign(expr_count, VALUE_UNAVAILABLE);
+    }
+
+    bool changed;
+    do
+    {
+        changed = false;
+        for(size_t i = 0; i < infos.size(); ++i)
+        {
+            InstructionInfo &info = infos[i];
+
+            std::vector<int> new_in(expr_count, VALUE_UNAVAILABLE);
+            if(!info.pred.empty())
+            {
+                new_in = infos[info.pred[0]].out_values;
+                for(size_t p = 1; p < info.pred.size(); ++p)
+                {
+                    const std::vector<int> &pred_out = infos[info.pred[p]].out_values;
+                    for(int expr_id = 0; expr_id < expr_count; ++expr_id)
+                    {
+                        new_in[expr_id] = combine_values(new_in[expr_id], pred_out[expr_id]);
+                    }
                 }
             }
 
-            register_expression(key, cur->a);
-        }
+            if(new_in != info.in_values)
+            {
+                info.in_values.swap(new_in);
+                changed = true;
+            }
 
-        if(is_block_boundary_after(cur))
-        {
-            clear_all();
+            std::vector<int> new_out = info.in_values;
+
+            if(info.kill_all)
+            {
+                std::fill(new_out.begin(), new_out.end(), VALUE_UNAVAILABLE);
+            }
+            else
+            {
+                for(int expr_id : info.kill_expr_ids)
+                {
+                    if(expr_id >= 0 && expr_id < expr_count)
+                    {
+                        new_out[expr_id] = VALUE_UNAVAILABLE;
+                    }
+                }
+                for(int def_id : info.kill_def_ids)
+                {
+                    if(def_id >= 0 && static_cast<size_t>(def_id) < expr_defs.size())
+                    {
+                        int expr_id = expr_defs[def_id].expr_id;
+                        if(expr_id >= 0 && expr_id < expr_count && new_out[expr_id] == def_id)
+                        {
+                            new_out[expr_id] = VALUE_UNAVAILABLE;
+                        }
+                    }
+                }
+            }
+
+            if(info.expr_id >= 0 && info.expr_id < expr_count)
+            {
+                new_out[info.expr_id] = info.expr_def_id;
+            }
+
+            if(new_out != info.out_values)
+            {
+                info.out_values.swap(new_out);
+                changed = true;
+            }
         }
+    }
+    while(changed);
+
+    for(InstructionInfo &info : infos)
+    {
+        if(info.expr_id < 0) continue;
+        if(info.expr_id >= expr_count) continue;
+
+        int reaching_def = info.in_values[info.expr_id];
+        if(reaching_def < 0) continue;
+        if(static_cast<size_t>(reaching_def) >= expr_defs.size()) continue;
+
+        SYM *replacement = expr_defs[reaching_def].result;
+        if(replacement == nullptr) continue;
+        if(replacement == info.tac->a) continue;
+
+        info.tac->op = TAC_COPY;
+        info.tac->b = replacement;
+        info.tac->c = nullptr;
+
+        g_eliminated++;
+
+        std::ostringstream msg;
+        msg << "eliminated redundant " << sym_name(info.tac->a)
+            << " using " << sym_name(replacement);
+        log_append(msg.str());
     }
 
     g_log = nullptr;
