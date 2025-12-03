@@ -12,6 +12,7 @@
 #include "licm.h"
 #include "lsr.h"
 #include "loopreduce.h"
+#include "loopunroll.h"
 #include "optlog.h"
 #include "deadcode.h"
 
@@ -65,6 +66,7 @@ int main(int argc,   char *argv[])
 	licm_reset();
 	lsr_reset();
 	loopreduce_reset();
+	loopunroll_reset();
 	/* iterate local optimizations to a fixpoint (guarded to avoid infinite loops) */
 	for(int iter = 0; iter < 32; ++iter)
 	{
@@ -74,8 +76,9 @@ int main(int argc,   char *argv[])
 		int hoisted = licm_run();
 		int reduced = lsr_run();
 		int collapsed = loopreduce_run();
+		int unrolled = loopunroll_run();
 		int dead = deadcode_run();
-		if(folds == 0 && copies == 0 && eliminated == 0 && hoisted == 0 && reduced == 0 && collapsed == 0 && dead == 0)
+		if(folds == 0 && copies == 0 && eliminated == 0 && hoisted == 0 && reduced == 0 && collapsed == 0 && unrolled == 0 && dead == 0)
 		{
 			break;
 		}

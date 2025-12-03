@@ -14,6 +14,7 @@ typedef enum {
     OPT_PASS_LICM = 3,
     OPT_PASS_LSR = 4,
     OPT_PASS_LOOPREDUCE = 5,
+    OPT_PASS_LOOPUNROLL = 6,
     OPT_PASS_COUNT
 } OPT_PASS;
 

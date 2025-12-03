@@ -25,6 +25,7 @@ const char *pass_name(OPT_PASS pass)
         case OPT_PASS_LICM:      return "loop-invariant code motion";
         case OPT_PASS_LSR:       return "loop strength reduction";
         case OPT_PASS_LOOPREDUCE:return "loop reduction";
+        case OPT_PASS_LOOPUNROLL:return "loop unrolling";
         default: return "optimization";
     }
 }
@@ -39,6 +40,7 @@ const char *metric_name(OPT_PASS pass)
         case OPT_PASS_LICM:      return "hoists";
         case OPT_PASS_LSR:       return "reductions";
         case OPT_PASS_LOOPREDUCE:return "collapses";
+        case OPT_PASS_LOOPUNROLL:return "unrolls";
         default: return "changes";
     }
 }

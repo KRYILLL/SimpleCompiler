@@ -100,6 +100,122 @@ void try_fold_binary(TAC *t)
     fold_into_copy(t, result, detail.str());
 }
 
+void try_fold_algebraic(TAC *t)
+{
+    if(t == NULL || t->a == NULL) return;
+
+    // x + 0 = x
+    if(t->op == TAC_ADD)
+    {
+        int val;
+        if(sym_is_int(t->b, &val) && val == 0)
+        {
+            // 0 + x -> x
+            t->op = TAC_COPY;
+            t->b = t->c;
+            t->c = NULL;
+            g_current_delta++;
+            if(g_current_log) g_current_log->push_back(std::string(t->a->name) + " = 0 + x -> x");
+            return;
+        }
+        if(sym_is_int(t->c, &val) && val == 0)
+        {
+            // x + 0 -> x
+            t->op = TAC_COPY;
+            // t->b is x
+            t->c = NULL;
+            g_current_delta++;
+            if(g_current_log) g_current_log->push_back(std::string(t->a->name) + " = x + 0 -> x");
+            return;
+        }
+    }
+
+    // x - 0 = x
+    if(t->op == TAC_SUB)
+    {
+        int val;
+        if(sym_is_int(t->c, &val) && val == 0)
+        {
+            // x - 0 -> x
+            t->op = TAC_COPY;
+            t->c = NULL;
+            g_current_delta++;
+            if(g_current_log) g_current_log->push_back(std::string(t->a->name) + " = x - 0 -> x");
+            return;
+        }
+        // x - x = 0
+        if(t->b == t->c && t->b != NULL)
+        {
+            fold_into_copy(t, 0, "x - x -> 0");
+            return;
+        }
+    }
+
+    // x * 1 = x, x * 0 = 0
+    if(t->op == TAC_MUL)
+    {
+        int val;
+        if(sym_is_int(t->b, &val))
+        {
+            if(val == 1)
+            {
+                // 1 * x -> x
+                t->op = TAC_COPY;
+                t->b = t->c;
+                t->c = NULL;
+                g_current_delta++;
+                if(g_current_log) g_current_log->push_back(std::string(t->a->name) + " = 1 * x -> x");
+                return;
+            }
+            if(val == 0)
+            {
+                // 0 * x -> 0
+                fold_into_copy(t, 0, "0 * x -> 0");
+                return;
+            }
+        }
+        if(sym_is_int(t->c, &val))
+        {
+            if(val == 1)
+            {
+                // x * 1 -> x
+                t->op = TAC_COPY;
+                t->c = NULL;
+                g_current_delta++;
+                if(g_current_log) g_current_log->push_back(std::string(t->a->name) + " = x * 1 -> x");
+                return;
+            }
+            if(val == 0)
+            {
+                // x * 0 -> 0
+                fold_into_copy(t, 0, "x * 0 -> 0");
+                return;
+            }
+        }
+    }
+
+    // x / 1 = x
+    if(t->op == TAC_DIV)
+    {
+        int val;
+        if(sym_is_int(t->c, &val) && val == 1)
+        {
+            // x / 1 -> x
+            t->op = TAC_COPY;
+            t->c = NULL;
+            g_current_delta++;
+            if(g_current_log) g_current_log->push_back(std::string(t->a->name) + " = x / 1 -> x");
+            return;
+        }
+        // x / x = 1 (if x != 0, but we assume valid)
+        if(t->b == t->c && t->b != NULL)
+        {
+            fold_into_copy(t, 1, "x / x -> 1");
+            return;
+        }
+    }
+}
+
 void try_fold_unary(TAC *t)
 {
     int value = 0;
@@ -186,6 +302,7 @@ extern "C" int constfold_run(void)
             case TAC_GT:
             case TAC_GE:
                 try_fold_binary(cur);
+                if(cur->op != TAC_COPY) try_fold_algebraic(cur);
                 break;
             case TAC_NEG:
                 try_fold_unary(cur);
