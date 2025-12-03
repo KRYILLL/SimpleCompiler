@@ -23,6 +23,8 @@ const char *pass_name(OPT_PASS pass)
         case OPT_PASS_COPYPROP:  return "copy propagation";
         case OPT_PASS_CSE:       return "common subexpression elimination";
         case OPT_PASS_LICM:      return "loop-invariant code motion";
+        case OPT_PASS_LSR:       return "loop strength reduction";
+        case OPT_PASS_LOOPREDUCE:return "loop reduction";
         default: return "optimization";
     }
 }
@@ -35,6 +37,8 @@ const char *metric_name(OPT_PASS pass)
         case OPT_PASS_COPYPROP:  return "replacements";
         case OPT_PASS_CSE:       return "eliminations";
         case OPT_PASS_LICM:      return "hoists";
+        case OPT_PASS_LSR:       return "reductions";
+        case OPT_PASS_LOOPREDUCE:return "collapses";
         default: return "changes";
     }
 }

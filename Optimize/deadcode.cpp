@@ -7,6 +7,12 @@
 
 namespace {
 
+enum class RemovalReason {
+    None,
+    DeadDefinition,
+    Unreachable
+};
+
 struct InstructionInfo {
     TAC *tac = nullptr;
     SYM *def = nullptr;
@@ -15,6 +21,7 @@ struct InstructionInfo {
     std::unordered_set<SYM*> live_in;
     std::unordered_set<SYM*> live_out;
     bool removable = false;
+    RemovalReason reason = RemovalReason::None;
 };
 
 std::vector<std::string> g_log;
@@ -152,8 +159,34 @@ std::string tac_op_name(int op)
         case TAC_GE:  return "ge";
         case TAC_NEG: return "neg";
         case TAC_COPY: return "copy";
+        case TAC_GOTO: return "goto";
+        case TAC_IFZ: return "ifz";
+        case TAC_BEGINFUNC: return "beginfunc";
+        case TAC_ENDFUNC: return "endfunc";
+        case TAC_LABEL: return "label";
+        case TAC_VAR: return "var";
+        case TAC_FORMAL: return "formal";
+        case TAC_ACTUAL: return "actual";
+        case TAC_CALL: return "call";
+        case TAC_RETURN: return "return";
+        case TAC_INPUT: return "input";
+        case TAC_OUTPUT: return "output";
         default: return "op";
     }
+}
+
+std::string sym_repr(SYM *sym)
+{
+    if(sym == nullptr) return std::string("<null>");
+    if(sym->type == SYM_INT)
+    {
+        return std::to_string(sym->value);
+    }
+    if(sym->name != nullptr)
+    {
+        return std::string(sym->name);
+    }
+    return std::string("<temp>");
 }
 
 bool assign_set(std::unordered_set<SYM*> &dst, const std::unordered_set<SYM*> &src)
@@ -241,6 +274,42 @@ int run_iteration()
         }
     }
 
+    std::vector<char> reachable(infos.size(), 0);
+    std::vector<int> worklist;
+    auto enqueue = [&](int idx) {
+        if(idx < 0 || idx >= static_cast<int>(infos.size())) return;
+        if(reachable[idx]) return;
+        reachable[idx] = 1;
+        worklist.push_back(idx);
+    };
+
+    if(!infos.empty())
+    {
+        enqueue(0);
+    }
+
+    for(size_t i = 0; i < infos.size(); ++i)
+    {
+        if(infos[i].tac->op == TAC_BEGINFUNC)
+        {
+            enqueue(static_cast<int>(i));
+            if(i > 0 && infos[i - 1].tac->op == TAC_LABEL)
+            {
+                enqueue(static_cast<int>(i - 1));
+            }
+        }
+    }
+
+    while(!worklist.empty())
+    {
+        int idx = worklist.back();
+        worklist.pop_back();
+        for(int succ : infos[idx].succ)
+        {
+            enqueue(succ);
+        }
+    }
+
     bool changed;
     do
     {
@@ -279,20 +348,68 @@ int run_iteration()
         }
     } while(changed);
 
-    int removed_this_round = 0;
+    for(size_t i = 0; i < infos.size(); ++i)
+    {
+        InstructionInfo &info = infos[i];
+        if(reachable[i]) continue;
+        int op = info.tac->op;
+        if(op == TAC_BEGINFUNC || op == TAC_ENDFUNC)
+        {
+            continue;
+        }
+        info.removable = true;
+        info.reason = RemovalReason::Unreachable;
+    }
+
     for(InstructionInfo &info : infos)
     {
+        if(info.reason != RemovalReason::None) continue;
         if(!is_side_effect_free(info.tac->op)) continue;
         if(info.def == nullptr) continue;
         if(info.live_out.find(info.def) != info.live_out.end()) continue;
 
         info.removable = true;
-        removed_this_round++;
+        info.reason = RemovalReason::DeadDefinition;
+    }
 
-        std::ostringstream msg;
-        msg << "removed dead " << tac_op_name(info.tac->op) << " targeting "
-            << (info.def && info.def->name ? info.def->name : "<temp>");
-        log_append(msg.str());
+    int removed_this_round = 0;
+    for(InstructionInfo &info : infos)
+    {
+        if(!info.removable) continue;
+        ++removed_this_round;
+
+        switch(info.reason)
+        {
+            case RemovalReason::DeadDefinition:
+            {
+                std::ostringstream msg;
+                msg << "removed dead " << tac_op_name(info.tac->op) << " targeting "
+                    << sym_repr(info.def);
+                log_append(msg.str());
+                break;
+            }
+            case RemovalReason::Unreachable:
+            {
+                std::ostringstream msg;
+                msg << "removed unreachable " << tac_op_name(info.tac->op);
+                if(info.tac->op == TAC_LABEL)
+                {
+                    msg << " " << sym_repr(info.tac->a);
+                }
+                else if(info.tac->op == TAC_GOTO || info.tac->op == TAC_IFZ)
+                {
+                    msg << " -> " << sym_repr(info.tac->a);
+                }
+                else if(info.def)
+                {
+                    msg << " targeting " << sym_repr(info.def);
+                }
+                log_append(msg.str());
+                break;
+            }
+            case RemovalReason::None:
+                break;
+        }
     }
 
     for(InstructionInfo &info : infos)

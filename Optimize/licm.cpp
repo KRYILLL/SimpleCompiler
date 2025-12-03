@@ -222,9 +222,19 @@ bool process_loop(TAC *header, TAC *backedge)
             if(!is_candidate_op(cur->op)) continue;
             SYM *def = tac_def_symbol(cur);
             if(def == nullptr || !is_tracked_symbol(def)) continue;
-            if(!is_temp_symbol(def)) continue;
+            bool def_is_temp = is_temp_symbol(def);
+            if(!def_is_temp)
+            {
+                if(cur->op != TAC_COPY) continue;
+                if(def->type != SYM_VAR) continue;
+            }
             auto itc = def_count.find(def);
             if(itc == def_count.end() || itc->second != 1) continue;
+
+            if(cur->b == def || cur->c == def)
+            {
+                continue;
+            }
 
             std::vector<SYM*> uses;
             collect_uses(cur, uses);
@@ -232,7 +242,6 @@ bool process_loop(TAC *header, TAC *backedge)
             for(SYM *use : uses)
             {
                 if(!is_tracked_symbol(use)) continue;
-                if(use == def) continue;
                 auto dit = def_count.find(use);
                 if(dit != def_count.end())
                 {
