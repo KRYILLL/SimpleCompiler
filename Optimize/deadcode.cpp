@@ -10,7 +10,8 @@ namespace {
 enum class RemovalReason {
     None,
     DeadDefinition,
-    Unreachable
+    Unreachable,
+    UnusedLabel
 };
 
 struct InstructionInfo {
@@ -344,6 +345,7 @@ int run_iteration()
     std::vector<InstructionInfo> infos(sequence.size());
     std::unordered_map<SYM*, int> label_map;
     std::unordered_map<SYM*, int> real_def_count;
+    std::unordered_map<SYM*, int> label_refcount;
     std::unordered_map<SYM*, ConstDefCandidate> const_copy_defs;
 
     for(size_t i = 0; i < sequence.size(); ++i)
@@ -372,6 +374,14 @@ int run_iteration()
                 {
                     const_copy_defs.erase(def);
                 }
+            }
+        }
+
+        if(info.tac->op == TAC_GOTO || info.tac->op == TAC_IFZ)
+        {
+            if(info.tac->a)
+            {
+                label_refcount[info.tac->a] += 1;
             }
         }
     }
@@ -630,11 +640,33 @@ int run_iteration()
     {
         if(info.reason != RemovalReason::None) continue;
         if(!is_side_effect_free(info.tac->op)) continue;
+        if(info.tac->op == TAC_VAR || info.tac->op == TAC_FORMAL)
+        {
+            continue;
+        }
         if(info.def == nullptr) continue;
         if(info.live_out.find(info.def) != info.live_out.end()) continue;
 
         info.removable = true;
         info.reason = RemovalReason::DeadDefinition;
+    }
+
+    for(size_t i = 0; i < infos.size(); ++i)
+    {
+        InstructionInfo &info = infos[i];
+        if(info.reason != RemovalReason::None) continue;
+        if(info.tac->op != TAC_LABEL) continue;
+        if(info.tac->next && info.tac->next->op == TAC_BEGINFUNC) continue;
+        SYM *label = info.tac->a;
+        if(label == nullptr) continue;
+        auto it = label_refcount.find(label);
+        if(it != label_refcount.end() && it->second > 0) continue;
+        if(it == label_refcount.end())
+        {
+            /* fallthrough */
+        }
+        info.removable = true;
+        info.reason = RemovalReason::UnusedLabel;
     }
 
     int removed_this_round = 0;
@@ -669,6 +701,13 @@ int run_iteration()
                 {
                     msg << " targeting " << sym_repr(info.def);
                 }
+                log_append(msg.str());
+                break;
+            }
+            case RemovalReason::UnusedLabel:
+            {
+                std::ostringstream msg;
+                msg << "removed unused label " << sym_repr(info.tac->a);
                 log_append(msg.str());
                 break;
             }
