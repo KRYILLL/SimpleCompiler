@@ -49,7 +49,7 @@ void fold_into_copy(TAC *t, int result, const std::string &detail)
     {
         g_current_log->push_back(line.str());
     }
-}
+}//将常量计算后写回
 
 void try_fold_binary(TAC *t)
 {
@@ -70,7 +70,7 @@ void try_fold_binary(TAC *t)
             result = lhs * rhs;
             break;
         case TAC_DIV:
-            if(rhs == 0) return; /* avoid folding division by zero */
+            if(rhs == 0) return; //避免除0
             result = lhs / rhs;
             break;
         case TAC_EQ:
@@ -93,7 +93,7 @@ void try_fold_binary(TAC *t)
             break;
         default:
             return;
-    }
+    }//进行常量折叠
 
     std::ostringstream detail;
     detail << lhs << ' ' << op_to_str(t->op) << ' ' << rhs << " -> " << result;

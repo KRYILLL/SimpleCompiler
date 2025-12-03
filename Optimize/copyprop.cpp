@@ -54,7 +54,7 @@ bool is_tracked(SYM *sym)
             return false;
         default:
             return true;
-    }
+    }//仅处理变量
 }
 
 SYM *tac_def(TAC *t)
@@ -149,12 +149,12 @@ int run_iteration()
     {
         InstructionInfo &info = infos[i];
         info.tac = sequence[i];
-        info.def = tac_def(info.tac);
-        collect_uses(info.tac, info);
+        info.def = tac_def(info.tac);//记录该指令顶定义的符号
+        collect_uses(info.tac, info);//记录该指令使用了哪些符号
         if(info.tac->op == TAC_LABEL && info.tac->a)
         {
             label_map[info.tac->a] = static_cast<int>(i);
-        }
+        }//记录label
     }
 
     auto next_index = [&](size_t idx) -> int {
@@ -200,7 +200,7 @@ int run_iteration()
                 break;
             }
         }
-    }
+    }//记录后继
 
     for(size_t i = 0; i < infos.size(); ++i)
     {
@@ -211,7 +211,7 @@ int run_iteration()
                 infos[succ].pred.push_back(static_cast<int>(i));
             }
         }
-    }
+    }//记录前驱
 
     std::vector<CopyInfo> copies;
     copies.reserve(infos.size());
@@ -235,7 +235,7 @@ int run_iteration()
         {
             copies_by_src[src].push_back(id);
         }
-    }
+    }//收集所有COPY指令
 
     if(copies.empty()) return 0;
 
@@ -257,7 +257,7 @@ int run_iteration()
                 info.kill.insert(info.kill.end(), it_src->second.begin(), it_src->second.end());
             }
         }
-    }
+    }//初始化in/out/kill/gen集合
 
     bool changed;
     do
@@ -278,13 +278,13 @@ int run_iteration()
                         new_in[bit] = static_cast<uint8_t>(new_in[bit] && out_vec[bit]);
                     }
                 }
-            }
+            }//计算新的in集合
 
             if(new_in != info.in)
             {
                 info.in.swap(new_in);
                 changed = true;
-            }
+            }//更新in集合
 
             std::vector<uint8_t> new_out = info.in;
             for(int kill_id : info.kill)
@@ -327,7 +327,7 @@ int run_iteration()
             {
                 if(copy_id < 0 || static_cast<size_t>(copy_id) >= available.size()) continue;
                 if(!available[copy_id]) continue;
-                if(chosen == -1)
+                if(chosen == -1) 
                 {
                     chosen = copy_id;
                 }

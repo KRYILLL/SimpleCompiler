@@ -8,6 +8,8 @@
 #include "cfg.h"
 #include "constfold.h"
 #include "copyprop.h"
+#include "cse.h"
+#include "licm.h"
 #include "optlog.h"
 #include "deadcode.h"
 
@@ -57,12 +59,16 @@ int main(int argc,   char *argv[])
 	optlog_reset();
 	constfold_reset();
 	copyprop_reset();
+	cse_reset();
+	licm_reset();
 	/* iterate local optimizations to a fixpoint (guarded to avoid infinite loops) */
 	for(int iter = 0; iter < 32; ++iter)
 	{
 		int folds = constfold_run();
 		int copies = copyprop_run();
-		if(folds == 0 && copies == 0)
+		int eliminated = cse_run();
+		int hoisted = licm_run();
+		if(folds == 0 && copies == 0 && eliminated == 0 && hoisted == 0)
 		{
 			break;
 		}

@@ -21,6 +21,8 @@ const char *pass_name(OPT_PASS pass)
     {
         case OPT_PASS_CONSTFOLD: return "constant folding";
         case OPT_PASS_COPYPROP:  return "copy propagation";
+        case OPT_PASS_CSE:       return "common subexpression elimination";
+        case OPT_PASS_LICM:      return "loop-invariant code motion";
         default: return "optimization";
     }
 }
@@ -31,6 +33,8 @@ const char *metric_name(OPT_PASS pass)
     {
         case OPT_PASS_CONSTFOLD: return "folds";
         case OPT_PASS_COPYPROP:  return "replacements";
+        case OPT_PASS_CSE:       return "eliminations";
+        case OPT_PASS_LICM:      return "hoists";
         default: return "changes";
     }
 }

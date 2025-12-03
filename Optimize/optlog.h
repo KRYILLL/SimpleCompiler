@@ -10,6 +10,8 @@ extern "C" {
 typedef enum {
     OPT_PASS_CONSTFOLD = 0,
     OPT_PASS_COPYPROP = 1,
+    OPT_PASS_CSE = 2,
+    OPT_PASS_LICM = 3,
     OPT_PASS_COUNT
 } OPT_PASS;
 
