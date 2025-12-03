@@ -208,10 +208,32 @@ bool process_loop(const LoopInfo &loop)
     }
     if(body.empty()) return log_skip(loop_label, "empty body");
 
+    std::unordered_set<SYM*> loop_labels;
+    loop_labels.reserve(body.size() + 1);
+    if(header->op == TAC_LABEL && header->a)
+    {
+        loop_labels.insert(header->a);
+    }
+    for(TAC *cur : body)
+    {
+        if(cur->op == TAC_LABEL && cur->a)
+        {
+            loop_labels.insert(cur->a);
+        }
+    }
+
     TAC *ifz = nullptr;
     for(TAC *cur : body)
     {
-        if(cur->op == TAC_IFZ)
+        if(cur->op != TAC_IFZ) continue;
+
+        bool exits_loop = true;
+        if(cur->a && loop_labels.find(cur->a) != loop_labels.end())
+        {
+            exits_loop = false;
+        }
+
+        if(exits_loop)
         {
             if(ifz != nullptr) return log_skip(loop_label, "multiple exits");
             ifz = cur;
