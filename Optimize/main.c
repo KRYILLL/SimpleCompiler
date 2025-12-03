@@ -74,7 +74,8 @@ int main(int argc,   char *argv[])
 		int hoisted = licm_run();
 		int reduced = lsr_run();
 		int collapsed = loopreduce_run();
-		if(folds == 0 && copies == 0 && eliminated == 0 && hoisted == 0 && reduced == 0 && collapsed == 0)
+		int dead = deadcode_run();
+		if(folds == 0 && copies == 0 && eliminated == 0 && hoisted == 0 && reduced == 0 && collapsed == 0 && dead == 0)
 		{
 			break;
 		}

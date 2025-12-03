@@ -113,6 +113,49 @@ void try_fold_unary(TAC *t)
         fold_into_copy(t, result, detail.str());
     }
 }
+
+void detach_tac(TAC *node)
+{
+    if(node == nullptr) return;
+    TAC *prev = node->prev;
+    TAC *next = node->next;
+    if(prev) prev->next = next; else tac_first = next;
+    if(next) next->prev = prev; else tac_last = prev;
+    node->prev = nullptr;
+    node->next = nullptr;
+}
+
+void try_fold_ifz(TAC *t)
+{
+    int value = 0;
+    if(!sym_is_int(t->b, &value)) return;
+
+    if(value == 0)
+    {
+        // ifz 0 goto L -> goto L
+        t->op = TAC_GOTO;
+        t->b = NULL;
+        g_current_delta++;
+        if(g_current_log)
+        {
+            std::ostringstream oss;
+            oss << "constant ifz -> " << (t->a ? t->a->name : "?") << " (condition 0)";
+            g_current_log->push_back(oss.str());
+        }
+    }
+    else
+    {
+        // ifz 1 goto L -> remove
+        if(g_current_log)
+        {
+            std::ostringstream oss;
+            oss << "removed constant ifz -> " << (t->a ? t->a->name : "?") << " (condition " << value << ")";
+            g_current_log->push_back(oss.str());
+        }
+        detach_tac(t);
+        g_current_delta++;
+    }
+}
 }
 
 extern "C" void constfold_reset(void)
@@ -127,8 +170,9 @@ extern "C" int constfold_run(void)
     g_current_log = &run_log;
     g_current_delta = 0;
 
-    for(TAC *cur = tac_first; cur != NULL; cur = cur->next)
+    for(TAC *cur = tac_first; cur != NULL; )
     {
+        TAC *next = cur->next;
         switch(cur->op)
         {
             case TAC_ADD:
@@ -146,9 +190,13 @@ extern "C" int constfold_run(void)
             case TAC_NEG:
                 try_fold_unary(cur);
                 break;
+            case TAC_IFZ:
+                try_fold_ifz(cur);
+                break;
             default:
                 break;
         }
+        cur = next;
     }
 
     g_current_log = nullptr;

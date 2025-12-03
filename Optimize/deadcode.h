@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-void deadcode_run(void);
+int deadcode_run(void);
 void deadcode_emit_report(FILE *out);
 
 #ifdef __cplusplus

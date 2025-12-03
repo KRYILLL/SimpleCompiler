@@ -355,6 +355,8 @@ bool process_loop(const LoopInfo &loop)
 
     std::unordered_map<SYM*, TAC*> def_map;
     std::unordered_map<SYM*, int> def_count;
+    std::unordered_map<SYM*, int> use_count;
+
     for(TAC *cur : body)
     {
         SYM *def = tac_def_symbol(cur);
@@ -362,6 +364,40 @@ bool process_loop(const LoopInfo &loop)
         {
             def_map[def] = cur;
             def_count[def] += 1;
+        }
+
+        switch(cur->op)
+        {
+            case TAC_ADD:
+            case TAC_SUB:
+            case TAC_MUL:
+            case TAC_DIV:
+            case TAC_EQ:
+            case TAC_NE:
+            case TAC_LT:
+            case TAC_LE:
+            case TAC_GT:
+            case TAC_GE:
+                if(cur->b) use_count[cur->b]++;
+                if(cur->c) use_count[cur->c]++;
+                break;
+            case TAC_NEG:
+            case TAC_COPY:
+                if(cur->b) use_count[cur->b]++;
+                break;
+            case TAC_IFZ:
+                if(cur->b) use_count[cur->b]++;
+                break;
+            case TAC_RETURN:
+            case TAC_OUTPUT:
+            case TAC_ACTUAL:
+                if(cur->a) use_count[cur->a]++;
+                break;
+            case TAC_CALL:
+                if(cur->b) use_count[cur->b]++;
+                break;
+            default:
+                break;
         }
     }
 
@@ -576,7 +612,52 @@ bool process_loop(const LoopInfo &loop)
         }
     }
 
-    if(reductions.empty())
+    std::vector<std::pair<SYM*, int>> constant_overwrites;
+
+    for(auto const& [sym, count] : def_count)
+    {
+        if(sym == ivar) continue;
+        if(!is_tracked_symbol(sym)) continue;
+        if(use_count[sym] > 0) continue;
+
+        bool all_const = true;
+        int last_val = 0;
+        bool found_any = false;
+
+        for(TAC *cur : body)
+        {
+            SYM *def = tac_def_symbol(cur);
+            if(def != sym) continue;
+            
+            if(cur->op == TAC_VAR) continue;
+
+            if(cur->op == TAC_COPY && cur->b != nullptr && cur->b->type == SYM_INT)
+            {
+                last_val = cur->b->value;
+                found_any = true;
+            }
+            else
+            {
+                all_const = false;
+                break;
+            }
+        }
+
+        if(all_const && found_any)
+        {
+            constant_overwrites.push_back({sym, last_val});
+            for(TAC *cur : body)
+            {
+                SYM *def = tac_def_symbol(cur);
+                if(def == sym && cur->op != TAC_VAR)
+                {
+                    nodes_to_remove.insert(cur);
+                }
+            }
+        }
+    }
+
+    if(reductions.empty() && constant_overwrites.empty())
     {
         if(g_log)
         {
@@ -606,6 +687,11 @@ bool process_loop(const LoopInfo &loop)
         }
         if(cur->op == TAC_VAR)
         {
+            if(use_count[cur->a] == 0)
+            {
+                nodes_to_remove.insert(cur);
+                continue;
+            }
             // var for other temps not touched: abort
             return log_skip(loop_label, "var decl for unknown temp");
         }
@@ -663,6 +749,23 @@ bool process_loop(const LoopInfo &loop)
             g_log->push_back(oss.str());
         }
         ++g_collapses;
+    }
+
+    for(auto p : constant_overwrites)
+    {
+        SYM *sym = p.first;
+        int val = p.second;
+        SYM *const_sym = mk_const(val);
+        TAC *copy = mk_tac(TAC_COPY, sym, const_sym, nullptr);
+        insert_before(insert_pos, copy);
+        
+        if(g_log)
+        {
+            std::ostringstream oss;
+            oss << "removed dead stores for " << sym_name_safe(sym)
+                << " : final value " << val;
+            g_log->push_back(oss.str());
+        }
     }
 
     SYM *final_sym = mk_const(final_value);

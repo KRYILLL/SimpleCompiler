@@ -695,10 +695,11 @@ int run_iteration()
 
 } // namespace
 
-extern "C" void deadcode_run(void)
+extern "C" int deadcode_run(void)
 {
     log_clear();
     while(run_iteration() > 0) { /* iterate to fixpoint */ }
+    return g_removed_total;
 }
 
 extern "C" void deadcode_emit_report(FILE *out)
