@@ -70,14 +70,15 @@ int main(int argc,   char *argv[])
 	/* iterate local optimizations to a fixpoint (guarded to avoid infinite loops) */
 	for(int iter = 0; iter < 32; ++iter)
 	{
-		int folds = constfold_run();
-		int copies = copyprop_run();
-		int eliminated = cse_run();
-		int hoisted = licm_run();
-		int reduced = lsr_run();
-		int collapsed = loopreduce_run();
-		int unrolled = loopunroll_run();
-		int dead = deadcode_run();
+		int folds = 0, copies = 0, eliminated = 0, hoisted = 0, reduced = 0, collapsed = 0, unrolled = 0, dead = 0;
+		folds = constfold_run();
+		copies = copyprop_run();
+		eliminated = cse_run();
+		hoisted = licm_run();
+		reduced = lsr_run();
+		collapsed = loopreduce_run();
+		unrolled = loopunroll_run();
+		dead = deadcode_run();
 		if(folds == 0 && copies == 0 && eliminated == 0 && hoisted == 0 && reduced == 0 && collapsed == 0 && unrolled == 0 && dead == 0)
 		{
 			break;

@@ -59,15 +59,7 @@ fi
 [ "$VERBOSE" = true ] && echo "✓ 成功生成 ${BASE_NAME}.o"
 
 # 步骤 3: 运行虚拟机
-INPUT_DATA_FILE="${BASE_NAME}.in"
 log_step 3 "运行 ./machine ${BASE_NAME}.o"
-if [ -f "${INPUT_DATA_FILE}" ]; then
-    if [ "$VERBOSE" = true ]; then
-        echo "✓ 检测到输入文件 ${INPUT_DATA_FILE}, 通过重定向提供输入"
-    fi
-    ./machine "${BASE_NAME}.o" < "${INPUT_DATA_FILE}"
-else
-    ./machine "${BASE_NAME}.o"
-fi
+./machine "${BASE_NAME}.o"
 
 [ "$VERBOSE" = true ] && echo -e "\n===== 测试 '$INPUT_FILE' 成功完成! ====="
