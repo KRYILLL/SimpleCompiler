@@ -6,6 +6,8 @@
 #include "tac.h"
 #include "obj.h"
 #include "constfold.h"
+#include "copyprop.h"
+#include "optlog.h"
 #include "deadcode.h"
 
 /* global var */
@@ -407,16 +409,17 @@ void asm_code(TAC *c)
 		return;
 
 		case TAC_OUTPUT:
-		if(c->a->type == SYM_VAR)
+		if(c->a->type == SYM_TEXT)
 		{
 			r=reg_alloc(c->a);
-			out_str(file_s, "	LOD R15,R%u\n", r);
-			out_str(file_s, "	OTI\n");
-		} else if(c->a->type == SYM_TEXT)
+			out_str(file_s, "\tLOD R15,R%u\n", r);
+			out_str(file_s, "\tOTS\n");
+		}
+		else
 		{
 			r=reg_alloc(c->a);
-			out_str(file_s, "	LOD R15,R%u\n", r);
-			out_str(file_s, "	OTS\n");
+			out_str(file_s, "\tLOD R15,R%u\n", r);
+			out_str(file_s, "\tOTI\n");
 		}
 		return;
 
@@ -498,7 +501,7 @@ void tac_obj()
 	for(int r=0; r < R_NUM; r++) rdesc[r].var=NULL;
 	
 	asm_head();
-	constfold_emit_report(file_s);
+	optlog_emit(file_s);
 	deadcode_emit_report(file_s);
 
 	TAC * cur;

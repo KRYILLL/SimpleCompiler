@@ -7,6 +7,8 @@
 #include "obj.h"
 #include "cfg.h"
 #include "constfold.h"
+#include "copyprop.h"
+#include "optlog.h"
 #include "deadcode.h"
 
 FILE *file_x, *file_s;
@@ -52,7 +54,19 @@ int main(int argc,   char *argv[])
 
 	tac_init();
 	yyparse();
-	constfold_run();
+	optlog_reset();
+	constfold_reset();
+	copyprop_reset();
+	/* iterate local optimizations to a fixpoint (guarded to avoid infinite loops) */
+	for(int iter = 0; iter < 32; ++iter)
+	{
+		int folds = constfold_run();
+		int copies = copyprop_run();
+		if(folds == 0 && copies == 0)
+		{
+			break;
+		}
+	}
 	deadcode_run();
 	tac_list();
 	

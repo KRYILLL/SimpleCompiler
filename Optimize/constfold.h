@@ -8,8 +8,8 @@
 extern "C" {
 #endif
 
-void constfold_run(void);
-void constfold_emit_report(FILE *out);
+void constfold_reset(void);
+int constfold_run(void);
 
 #ifdef __cplusplus
 }

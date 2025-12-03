@@ -3,7 +3,7 @@ CXX = g++
 CFLAGS = -g3
 CXXFLAGS = -g3
 
-OBJS = main.o mini.l.o mini.y.o tac.o obj.o cfg.o constfold.o deadcode.o
+OBJS = main.o mini.l.o mini.y.o tac.o obj.o cfg.o constfold.o copyprop.o optlog.o deadcode.o
 
 all: mini asm machine
 
@@ -16,7 +16,7 @@ mini.l.c: mini.l
 mini.y.c mini.y.h: mini.y
 	yacc -d -o mini.y.c mini.y
 
-main.o: main.c mini.y.h tac.h obj.h cfg.h constfold.h deadcode.h
+main.o: main.c mini.y.h tac.h obj.h cfg.h constfold.h copyprop.h optlog.h deadcode.h
 	$(CC) $(CFLAGS) -c main.c -o $@
 
 mini.l.o: mini.l.c mini.y.h tac.h
@@ -28,14 +28,20 @@ mini.y.o: mini.y.c tac.h
 tac.o: tac.c tac.h
 	$(CC) $(CFLAGS) -c tac.c -o $@
 
-obj.o: obj.c obj.h tac.h
+obj.o: obj.c obj.h tac.h constfold.h copyprop.h optlog.h deadcode.h
 	$(CC) $(CFLAGS) -c obj.c -o $@
 
 cfg.o: cfg.cpp cfg.h tac.h
 	$(CXX) $(CXXFLAGS) -c cfg.cpp -o $@
 
-constfold.o: constfold.cpp constfold.h tac.h
+constfold.o: constfold.cpp constfold.h optlog.h tac.h
 	$(CXX) $(CXXFLAGS) -c constfold.cpp -o $@
+
+copyprop.o: copyprop.cpp copyprop.h optlog.h tac.h
+	$(CXX) $(CXXFLAGS) -c copyprop.cpp -o $@
+
+optlog.o: optlog.cpp optlog.h tac.h
+	$(CXX) $(CXXFLAGS) -c optlog.cpp -o $@
 
 deadcode.o: deadcode.cpp deadcode.h tac.h
 	$(CXX) $(CXXFLAGS) -c deadcode.cpp -o $@

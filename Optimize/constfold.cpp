@@ -3,21 +3,11 @@
 #include <sstream>
 #include <cstring>
 #include "constfold.h"
+#include "optlog.h"
 
 namespace {
-std::vector<std::string> g_log;
-int g_folds_applied = 0;
-
-void log_clear()
-{
-    g_log.clear();
-    g_folds_applied = 0;
-}
-
-void log_append(const std::string &msg)
-{
-    g_log.push_back(msg);
-}
+std::vector<std::string> *g_current_log = nullptr;
+int g_current_delta = 0;
 
 bool sym_is_int(const SYM *s, int *value)
 {
@@ -51,11 +41,14 @@ void fold_into_copy(TAC *t, int result, const std::string &detail)
     t->op = TAC_COPY;
     t->b = k;
     t->c = NULL;
-    g_folds_applied++;
+    g_current_delta++;
 
     std::ostringstream line;
     line << t->a->name << " = " << detail;
-    log_append(line.str());
+    if(g_current_log)
+    {
+        g_current_log->push_back(line.str());
+    }
 }
 
 void try_fold_binary(TAC *t)
@@ -122,9 +115,17 @@ void try_fold_unary(TAC *t)
 }
 }
 
-extern "C" void constfold_run(void)
+extern "C" void constfold_reset(void)
 {
-    log_clear();
+    g_current_log = nullptr;
+    g_current_delta = 0;
+}
+
+extern "C" int constfold_run(void)
+{
+    std::vector<std::string> run_log;
+    g_current_log = &run_log;
+    g_current_delta = 0;
 
     for(TAC *cur = tac_first; cur != NULL; cur = cur->next)
     {
@@ -149,25 +150,19 @@ extern "C" void constfold_run(void)
                 break;
         }
     }
-}
 
-extern "C" void constfold_emit_report(FILE *out)
-{
-    if(out == NULL) return;
+    g_current_log = nullptr;
 
-    out_str(out, "\n\t# constant folding pass\n");
-    if(g_folds_applied == 0)
+    std::vector<const char*> raw;
+    raw.reserve(run_log.size());
+    for(const std::string &line : run_log)
     {
-        out_str(out, "\t#   no changes\n\n");
+        raw.push_back(line.c_str());
     }
-    else
-    {
-        for(const std::string &line : g_log)
-        {
-            out_str(out, "\t#   %s\n", line.c_str());
-        }
-        out_str(out, "\t#   total folds: %d\n\n", g_folds_applied);
-    }
+    optlog_record(OPT_PASS_CONSTFOLD,
+                  raw.empty() ? nullptr : raw.data(),
+                  static_cast<int>(raw.size()),
+                  g_current_delta);
 
-    log_clear();
+    return g_current_delta;
 }
