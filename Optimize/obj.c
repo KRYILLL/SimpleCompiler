@@ -3,6 +3,8 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <limits.h>
+#include <stdint.h>
 #include "tac.h"
 #include "obj.h"
 #include "constfold.h"
@@ -16,6 +18,156 @@ int tof; /* top of frame */
 int oof; /* offset of formal */
 int oon; /* offset of next frame */
 struct rdesc rdesc[R_NUM];
+
+typedef struct sym_reg_info
+{
+	SYM *sym;
+	int *uses;
+	int use_count;
+	int use_cap;
+	int use_cursor;
+	struct sym_reg_info *next;
+} SymRegInfo;
+
+static SymRegInfo *sym_info_list = NULL;
+static int current_instr_index = -1;
+
+static SymRegInfo *syminfo_get(SYM *sym, int create)
+{
+	if(sym == NULL) return NULL;
+	if(sym->type != SYM_VAR) return NULL;
+	SymRegInfo *info = (SymRegInfo *)sym->etc;
+	if(info == NULL && create)
+	{
+		info = (SymRegInfo *)malloc(sizeof(SymRegInfo));
+		if(info == NULL)
+		{
+			error("out of memory in register allocator\n");
+		}
+		info->sym = sym;
+		info->uses = NULL;
+		info->use_count = 0;
+		info->use_cap = 0;
+		info->use_cursor = 0;
+		info->next = sym_info_list;
+		sym_info_list = info;
+		sym->etc = info;
+	}
+	return info;
+}
+
+static void syminfo_add_use(SYM *sym, int index)
+{
+	SymRegInfo *info = syminfo_get(sym, 1);
+	if(info == NULL) return;
+	if(info->use_count == info->use_cap)
+	{
+		int new_cap = (info->use_cap == 0) ? 4 : info->use_cap * 2;
+		int *new_buf = (int *)realloc(info->uses, new_cap * sizeof(int));
+		if(new_buf == NULL)
+		{
+			error("out of memory in register allocator\n");
+		}
+		info->uses = new_buf;
+		info->use_cap = new_cap;
+	}
+	info->uses[info->use_count++] = index;
+}
+
+static int syminfo_peek_next_use(SYM *sym)
+{
+	SymRegInfo *info = syminfo_get(sym, 0);
+	if(info == NULL) return INT_MAX;
+	if(info->use_cursor >= info->use_count) return INT_MAX;
+	return info->uses[info->use_cursor];
+}
+
+static void syminfo_consume_use(SYM *sym, int index)
+{
+	SymRegInfo *info = syminfo_get(sym, 0);
+	if(info == NULL) return;
+	if(info->use_cursor < info->use_count && info->uses[info->use_cursor] == index)
+	{
+		info->use_cursor++;
+	}
+}
+
+static void syminfo_reset_cursors(void)
+{
+	for(SymRegInfo *info = sym_info_list; info != NULL; info = info->next)
+	{
+		info->use_cursor = 0;
+	}
+}
+
+static void syminfo_cleanup(void)
+{
+	SymRegInfo *cur = sym_info_list;
+	while(cur != NULL)
+	{
+		SymRegInfo *next = cur->next;
+		if(cur->uses) free(cur->uses);
+		if(cur->sym) cur->sym->etc = NULL;
+		free(cur);
+		cur = next;
+	}
+	sym_info_list = NULL;
+}
+
+static int syminfo_has_future_use(SYM *sym, int index)
+{
+	SymRegInfo *info = syminfo_get(sym, 0);
+	if(info == NULL) return 0;
+	for(int i = info->use_cursor; i < info->use_count; ++i)
+	{
+		if(info->uses[i] > index)
+		{
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void regalloc_record_uses(TAC *t, int index)
+{
+	if(t == NULL) return;
+	switch(t->op)
+	{
+		case TAC_ADD:
+		case TAC_SUB:
+		case TAC_MUL:
+		case TAC_DIV:
+		case TAC_EQ:
+		case TAC_NE:
+		case TAC_LT:
+		case TAC_LE:
+		case TAC_GT:
+		case TAC_GE:
+			if(t->b) syminfo_add_use(t->b, index);
+			if(t->c) syminfo_add_use(t->c, index);
+			break;
+
+		case TAC_NEG:
+		case TAC_COPY:
+			if(t->b) syminfo_add_use(t->b, index);
+			break;
+
+		case TAC_IFZ:
+		case TAC_OUTPUT:
+		case TAC_ACTUAL:
+		case TAC_RETURN:
+			if(t->b) syminfo_add_use(t->b, index);
+			else if(t->a) syminfo_add_use(t->a, index);
+			break;
+
+		case TAC_CALL:
+			/* no direct operand uses except through TAC_ACTUAL */
+			break;
+
+		default:
+			break;
+	}
+}
 
 void rdesc_clear(int r)    
 {
@@ -97,78 +249,93 @@ void asm_load(int r, SYM *s)
 	}
 
 	// rdesc_fill(r, s, UNMODIFIED);
-}   
-
-int reg_alloc(SYM *s)
-{
-	int r; 
-
-	/* already in a register */
-	for(r=R_GEN; r < R_NUM; r++)
-	{
-		if(rdesc[r].var==s)
-		{
-			if(rdesc[r].mod) asm_write_back(r);
-			return r;
-		}
-	}
-
-	/* empty register */
-	for(r=R_GEN; r < R_NUM; r++)
-	{
-		if(rdesc[r].var==NULL)
-		{
-			asm_load(r, s);
-			rdesc_fill(r, s, UNMODIFIED);
-			return r;
-		}
-
-	}
-	
-	/* unmodifed register */
-	for(r=R_GEN; r < R_NUM; r++)
-	{
-		if(!rdesc[r].mod)
-		{
-			asm_load(r, s);
-			rdesc_fill(r, s, UNMODIFIED);
-			return r;
-		}
-	}
-
-	/* random register */
-	srand(time(NULL));
-	int random = (rand() % (R_NUM - R_GEN)) + R_GEN; 
-	asm_write_back(random);
-	asm_load(random, s);
-	rdesc_fill(random, s, UNMODIFIED);
-	return random;
 }
 
-void asm_bin(char *op, SYM *a, SYM *b, SYM *c)
+int reg_alloc(SYM *s, int need_value)
 {
-	int reg_b=-1, reg_c=-1; 
+	if(s == NULL) return R_UNDEF;
 
-	while(reg_b == reg_c)
+	for(int r = R_GEN; r < R_NUM; r++)
 	{
-		reg_b = reg_alloc(b); 
-		reg_c = reg_alloc(c); 
+		if(rdesc[r].var == s)
+		{
+			return r;
+		}
 	}
-	
+
+	int target = -1;
+	for(int r = R_GEN; r < R_NUM; r++)
+	{
+		if(rdesc[r].var == NULL)
+		{
+			target = r;
+			break;
+		}
+	}
+
+	if(target == -1)
+	{
+		int best_reg = -1;
+		long long best_score = -1;
+		for(int r = R_GEN; r < R_NUM; r++)
+		{
+			SYM *held = rdesc[r].var;
+			if(held == NULL)
+			{
+				best_reg = r;
+				break;
+			}
+			int next_use = syminfo_peek_next_use(held);
+			if(next_use == current_instr_index && held != s)
+			{
+				continue;
+			}
+			long long score = (next_use == INT_MAX) ? ((long long)INT_MAX + 1LL) : (long long)next_use;
+			if(score > best_score)
+			{
+				best_score = score;
+				best_reg = r;
+			}
+		}
+		if(best_reg == -1)
+		{
+			best_reg = R_GEN;
+		}
+		target = best_reg;
+		asm_write_back(target);
+		rdesc_clear(target);
+	}
+
+	if(need_value)
+	{
+		asm_load(target, s);
+	}
+	rdesc_fill(target, s, UNMODIFIED);
+	return target;
+}
+
+void asm_bin(const char *op, SYM *a, SYM *b, SYM *c)
+{
+	int reg_b = reg_alloc(b, 1);
+	int reg_c = reg_alloc(c, 1);
+	if(b && b != a && syminfo_has_future_use(b, current_instr_index))
+	{
+		asm_write_back(reg_b);
+	}
 	out_str(file_s, "	%s R%u,R%u\n", op, reg_b, reg_c);
+	syminfo_consume_use(b, current_instr_index);
+	syminfo_consume_use(c, current_instr_index);
 	rdesc_fill(reg_b, a, MODIFIED);
 }   
 
 void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 {
-	int reg_b=-1, reg_c=-1; 
-
-	while(reg_b == reg_c)
+	int reg_b = reg_alloc(b, 1);
+	int reg_c = reg_alloc(c, 1);
+	if(b && b != a && syminfo_has_future_use(b, current_instr_index))
 	{
-		reg_b = reg_alloc(b); 
-		reg_c = reg_alloc(c); 
+		asm_write_back(reg_b);
 	}
-
 	out_str(file_s, "	SUB R%u,R%u\n", reg_b, reg_c);
 	out_str(file_s, "	TST R%u\n", reg_b);
 
@@ -232,6 +399,8 @@ void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 	/* Delete c from the descriptors and insert a */
 	rdesc_clear(reg_b);
 	rdesc_fill(reg_b, a, MODIFIED);
+	syminfo_consume_use(b, current_instr_index);
+	syminfo_consume_use(c, current_instr_index);
 }   
 
 void asm_cond(char *op, SYM *a,  char *l)
@@ -240,15 +409,21 @@ void asm_cond(char *op, SYM *a,  char *l)
 
 	if(a !=NULL)
 	{
-		int r;
-
-		for(r=R_GEN; r < R_NUM; r++) /* Is it in reg? */
+		int r = R_UNDEF;
+		for(int i=R_GEN; i < R_NUM; i++)
 		{
-			if(rdesc[r].var==a) break;
+			if(rdesc[i].var == a)
+			{
+				r = i;
+				break;
+			}
 		}
-
-		if(r < R_NUM) out_str(file_s, "	TST R%u\n", r);
-		else out_str(file_s, "	TST R%u\n", reg_alloc(a)); /* Load into new register */
+		if(r == R_UNDEF)
+		{
+			r = reg_alloc(a, 1);
+		}
+		out_str(file_s, "	TST R%u\n", r);
+		syminfo_consume_use(a, current_instr_index);
 	}
 
 	out_str(file_s, "	%s %s\n", op, l); 
@@ -268,7 +443,7 @@ void asm_call(SYM *a, SYM *b)
 	out_str(file_s, "	JMP %s\n", (char *)b);			/* jump to new func */
 	if(a != NULL)
 	{
-		r = reg_alloc(a);
+		r = reg_alloc(a, 0);
 		out_str(file_s, "	LOD R%u,R%u\n", r, R_TP);	
 		rdesc[r].mod = MODIFIED;
 	}
@@ -277,6 +452,15 @@ void asm_call(SYM *a, SYM *b)
 
 void asm_return(SYM *a)
 {
+	int ret_reg = R_UNDEF;
+	if(a!=NULL)	 /* return value */
+	{
+		ret_reg = reg_alloc(a, 1);
+		out_str(file_s, "\tLOD R%u,R%u\n", R_TP, ret_reg);
+		syminfo_consume_use(a, current_instr_index);
+	}
+	for(int r=R_GEN; r < R_NUM; r++) asm_write_back(r);
+	for(int r=R_GEN; r < R_NUM; r++) rdesc_clear(r);
 	for(int r=R_GEN; r < R_NUM; r++) asm_write_back(r);
 	for(int r=R_GEN; r < R_NUM; r++) rdesc_clear(r);
 
@@ -397,12 +581,17 @@ void asm_code(TAC *c)
 		return;
 
 		case TAC_COPY:
-		r = reg_alloc(c->b);
+		r = reg_alloc(c->b, 1);
+		if(c->b && c->b != c->a && syminfo_has_future_use(c->b, current_instr_index))
+		{
+			asm_write_back(r);
+		}
 		rdesc_fill(r, c->a, MODIFIED);
+		syminfo_consume_use(c->b, current_instr_index);
 		return;
 
 		case TAC_INPUT:
-		r=reg_alloc(c->a);
+		r=reg_alloc(c->a, 0);
 		out_str(file_s, "	ITI\n");
 		out_str(file_s, "	LOD R%u,R15\n", r);
 		rdesc[r].mod = MODIFIED;
@@ -411,16 +600,17 @@ void asm_code(TAC *c)
 		case TAC_OUTPUT:
 		if(c->a->type == SYM_TEXT)
 		{
-			r=reg_alloc(c->a);
+			r=reg_alloc(c->a, 1);
 			out_str(file_s, "\tLOD R15,R%u\n", r);
 			out_str(file_s, "\tOTS\n");
 		}
 		else
 		{
-			r=reg_alloc(c->a);
+			r=reg_alloc(c->a, 1);
 			out_str(file_s, "\tLOD R15,R%u\n", r);
 			out_str(file_s, "\tOTI\n");
 		}
+		syminfo_consume_use(c->a, current_instr_index);
 		return;
 
 		case TAC_GOTO:
@@ -438,9 +628,10 @@ void asm_code(TAC *c)
 		return;
 
 		case TAC_ACTUAL:
-		r=reg_alloc(c->a);
+		r=reg_alloc(c->a, 1);
 		out_str(file_s, "	STO (R2+%d),R%u\n", tof+oon, r);
 		oon += 4;
+		syminfo_consume_use(c->a, current_instr_index);
 		return;
 
 		case TAC_CALL:
@@ -500,6 +691,15 @@ void tac_obj()
 
 	for(int r=0; r < R_NUM; r++) rdesc[r].var=NULL;
 	
+	int instr_index = 0;
+	for(TAC *scan = tac_first; scan != NULL; scan = scan->next)
+	{
+		scan->etc = (void *)(intptr_t)instr_index;
+		regalloc_record_uses(scan, instr_index);
+		instr_index++;
+	}
+	syminfo_reset_cursors();
+
 	asm_head();
 	optlog_emit(file_s);
 	deadcode_emit_report(file_s);
@@ -507,12 +707,16 @@ void tac_obj()
 	TAC * cur;
 	for(cur=tac_first; cur!=NULL; cur=cur->next)
 	{
+		current_instr_index = (int)(intptr_t)cur->etc;
+		cur->etc = NULL;
 		out_str(file_s, "\n	# ");
 		out_tac(file_s, cur);
 		out_str(file_s, "\n");
 		asm_code(cur);
 	}
+	current_instr_index = -1;
 	asm_tail();
 	asm_static();
+	syminfo_cleanup();
 } 
 

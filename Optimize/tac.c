@@ -57,6 +57,11 @@ SYM *mk_sym(void)
 {
 	SYM *t;
 	t=(SYM *)malloc(sizeof(SYM));
+	if(t==NULL)
+	{
+		error("out of memory allocating symbol\n");
+	}
+	memset(t, 0, sizeof(SYM));
 	return t;
 }
 
