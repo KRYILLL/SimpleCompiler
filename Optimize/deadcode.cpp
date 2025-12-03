@@ -24,8 +24,125 @@ struct InstructionInfo {
     RemovalReason reason = RemovalReason::None;
 };
 
+struct ConstDefCandidate {
+    TAC *tac = nullptr;
+    int index = -1;
+    int value = 0;
+};
+
 std::vector<std::string> g_log;
 int g_removed_total = 0;
+
+using ConstEnv = std::unordered_map<SYM*, int>;
+
+bool is_tracked(SYM *sym);
+
+bool env_equal(const ConstEnv &a, const ConstEnv &b)
+{
+    if(a.size() != b.size()) return false;
+    for(const auto &entry : a)
+    {
+        auto it = b.find(entry.first);
+        if(it == b.end() || it->second != entry.second)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool assign_env(ConstEnv &dst, const ConstEnv &src)
+{
+    if(env_equal(dst, src)) return false;
+    dst = src;
+    return true;
+}
+
+ConstEnv merge_envs(ConstEnv lhs, const ConstEnv &rhs)
+{
+    for(auto it = lhs.begin(); it != lhs.end(); )
+    {
+        auto jt = rhs.find(it->first);
+        if(jt == rhs.end() || jt->second != it->second)
+        {
+            it = lhs.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+    return lhs;
+}
+
+bool operand_constant(SYM *sym, const ConstEnv &env, int &value)
+{
+    if(sym == nullptr) return false;
+    if(sym->type == SYM_INT)
+    {
+        value = sym->value;
+        return true;
+    }
+    if(!is_tracked(sym)) return false;
+    auto it = env.find(sym);
+    if(it == env.end()) return false;
+    value = it->second;
+    return true;
+}
+
+bool evaluate_constant(TAC *t, const ConstEnv &env, int &value)
+{
+    if(t == nullptr) return false;
+    switch(t->op)
+    {
+        case TAC_COPY:
+            if(operand_constant(t->b, env, value)) return true;
+            return false;
+        case TAC_NEG:
+        {
+            int inner;
+            if(!operand_constant(t->b, env, inner)) return false;
+            value = -inner;
+            return true;
+        }
+        case TAC_ADD:
+        case TAC_SUB:
+        case TAC_MUL:
+        case TAC_DIV:
+        case TAC_EQ:
+        case TAC_NE:
+        case TAC_LT:
+        case TAC_LE:
+        case TAC_GT:
+        case TAC_GE:
+        {
+            int lhs, rhs;
+            if(!operand_constant(t->b, env, lhs)) return false;
+            if(!operand_constant(t->c, env, rhs)) return false;
+            switch(t->op)
+            {
+                case TAC_ADD: value = lhs + rhs; break;
+                case TAC_SUB: value = lhs - rhs; break;
+                case TAC_MUL: value = lhs * rhs; break;
+                case TAC_DIV:
+                    if(rhs == 0) return false;
+                    value = lhs / rhs;
+                    break;
+                case TAC_EQ: value = (lhs == rhs) ? 1 : 0; break;
+                case TAC_NE: value = (lhs != rhs) ? 1 : 0; break;
+                case TAC_LT: value = (lhs < rhs) ? 1 : 0; break;
+                case TAC_LE: value = (lhs <= rhs) ? 1 : 0; break;
+                case TAC_GT: value = (lhs > rhs) ? 1 : 0; break;
+                case TAC_GE: value = (lhs >= rhs) ? 1 : 0; break;
+                default:
+                    return false;
+            }
+            return true;
+        }
+        default:
+            return false;
+    }
+}
 
 void log_clear()
 {
@@ -226,6 +343,8 @@ int run_iteration()
 
     std::vector<InstructionInfo> infos(sequence.size());
     std::unordered_map<SYM*, int> label_map;
+    std::unordered_map<SYM*, int> real_def_count;
+    std::unordered_map<SYM*, ConstDefCandidate> const_copy_defs;
 
     for(size_t i = 0; i < sequence.size(); ++i)
     {
@@ -236,6 +355,35 @@ int run_iteration()
         if(info.tac->op == TAC_LABEL && info.tac->a)
         {
             label_map[info.tac->a] = static_cast<int>(i);
+        }
+
+        SYM *def = info.def;
+        if(def && is_tracked(def))
+        {
+            int op = info.tac->op;
+            if(op != TAC_VAR && op != TAC_FORMAL)
+            {
+                real_def_count[def] += 1;
+                if(op == TAC_COPY && info.tac->b && info.tac->b->type == SYM_INT)
+                {
+                    const_copy_defs[def] = ConstDefCandidate{info.tac, static_cast<int>(i), info.tac->b->value};
+                }
+                else
+                {
+                    const_copy_defs.erase(def);
+                }
+            }
+        }
+    }
+
+    std::unordered_map<SYM*, ConstDefCandidate> unique_const_defs;
+    for(const auto &entry : const_copy_defs)
+    {
+        SYM *sym = entry.first;
+        auto it = real_def_count.find(sym);
+        if(it != real_def_count.end() && it->second == 1)
+        {
+            unique_const_defs[sym] = entry.second;
         }
     }
 
@@ -272,6 +420,123 @@ int run_iteration()
                 break;
             }
         }
+    }
+
+    std::vector<std::vector<int>> preds(infos.size());
+    for(size_t i = 0; i < infos.size(); ++i)
+    {
+        for(int succ : infos[i].succ)
+        {
+            if(succ >= 0 && succ < static_cast<int>(infos.size()))
+            {
+                preds[succ].push_back(static_cast<int>(i));
+            }
+        }
+    }
+
+    std::vector<ConstEnv> const_in(infos.size());
+    std::vector<ConstEnv> const_out(infos.size());
+    bool const_changed;
+    do
+    {
+        const_changed = false;
+        for(size_t i = 0; i < infos.size(); ++i)
+        {
+            ConstEnv merged;
+            const auto &pred_list = preds[i];
+            if(!pred_list.empty())
+            {
+                merged = const_out[pred_list[0]];
+                for(size_t j = 1; j < pred_list.size(); ++j)
+                {
+                    merged = merge_envs(merged, const_out[pred_list[j]]);
+                }
+            }
+
+            if(assign_env(const_in[i], merged))
+            {
+                const_changed = true;
+            }
+
+            ConstEnv updated = const_in[i];
+            SYM *def = infos[i].def;
+            if(def && is_tracked(def))
+            {
+                int value;
+                if(evaluate_constant(infos[i].tac, const_in[i], value))
+                {
+                    updated[def] = value;
+                }
+                else
+                {
+                    updated.erase(def);
+                }
+            }
+
+            if(assign_env(const_out[i], updated))
+            {
+                const_changed = true;
+            }
+        }
+    } while(const_changed);
+
+    int removed_constant_ifz = 0;
+    bool changed_constant_ifz = false;
+    for(size_t i = 0; i < infos.size(); ++i)
+    {
+        TAC *t = infos[i].tac;
+        if(t->op != TAC_IFZ) continue;
+
+        int cond_value;
+        bool has_const = operand_constant(t->b, const_in[i], cond_value);
+        if(!has_const)
+        {
+            auto it = unique_const_defs.find(t->b);
+            if(it == unique_const_defs.end() || it->second.index >= static_cast<int>(i))
+            {
+                continue;
+            }
+            cond_value = it->second.value;
+            has_const = true;
+        }
+
+        if(!has_const)
+        {
+            continue;
+        }
+
+        if(cond_value == 0)
+        {
+            t->op = TAC_GOTO;
+            t->b = nullptr;
+            t->c = nullptr;
+            changed_constant_ifz = true;
+            std::ostringstream msg;
+            msg << "folded constant ifz -> " << sym_repr(t->a);
+            log_append(msg.str());
+        }
+        else
+        {
+            TAC *prev = t->prev;
+            TAC *next = t->next;
+            if(prev) prev->next = next; else tac_first = next;
+            if(next) next->prev = prev; else tac_last = prev;
+            t->prev = nullptr;
+            t->next = nullptr;
+
+            std::ostringstream msg;
+            msg << "removed constant ifz -> " << sym_repr(t->a)
+                << " (condition " << cond_value << ")";
+            log_append(msg.str());
+            ++removed_constant_ifz;
+            changed_constant_ifz = true;
+        }
+    }
+
+    if(changed_constant_ifz)
+    {
+        g_removed_total += removed_constant_ifz;
+        return (removed_constant_ifz > 0) ? removed_constant_ifz : 1;
     }
 
     std::vector<char> reachable(infos.size(), 0);

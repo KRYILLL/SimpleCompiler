@@ -159,20 +159,57 @@ void asm_bin(char *op, SYM *a, SYM *b, SYM *c)
 	rdesc_fill(reg_b, a, MODIFIED);
 }   
 
+static int sym_is_zero_const(SYM *sym)
+{
+	return (sym != NULL && sym->type == SYM_INT && sym->value == 0);
+}
+
 void asm_cmp(int op, SYM *a, SYM *b, SYM *c)
 {
-	int reg_b=-1, reg_c=-1; 
+	SYM *lhs = b;
+	SYM *rhs = c;
+	int cmp_op = op;
 
-	while(reg_b == reg_c)
+	int lhs_zero = sym_is_zero_const(lhs);
+	int rhs_zero = sym_is_zero_const(rhs);
+
+	if(lhs_zero && !rhs_zero)
 	{
-		reg_b = reg_alloc(b); 
-		reg_c = reg_alloc(c); 
+		lhs = c;
+		rhs = b;
+		switch(cmp_op)
+		{
+			case TAC_LT: cmp_op = TAC_GT; break;
+			case TAC_LE: cmp_op = TAC_GE; break;
+			case TAC_GT: cmp_op = TAC_LT; break;
+			case TAC_GE: cmp_op = TAC_LE; break;
+			default: break;
+		}
+		lhs_zero = sym_is_zero_const(lhs);
+		rhs_zero = sym_is_zero_const(rhs);
 	}
 
-	out_str(file_s, "	SUB R%u,R%u\n", reg_b, reg_c);
-	out_str(file_s, "	TST R%u\n", reg_b);
+	int reg_b = -1;
+	int reg_c = -1;
+	const int use_zero_fastpath = (!lhs_zero && rhs_zero);
 
-	switch(op)
+	if(use_zero_fastpath)
+	{
+		reg_b = reg_alloc(lhs);
+	}
+	else
+	{
+		while(reg_b == reg_c)
+		{
+			reg_b = reg_alloc(lhs);
+			reg_c = reg_alloc(rhs);
+		}
+		out_str(file_s, "\tSUB R%u,R%u\n", reg_b, reg_c);
+	}
+
+	out_str(file_s, "\tTST R%u\n", reg_b);
+
+	switch(cmp_op)
 	{		
 		case TAC_EQ:
 		out_str(file_s, "	LOD R3,R1+40\n");
