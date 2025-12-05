@@ -3,7 +3,7 @@ CXX = g++
 CFLAGS = -g3
 CXXFLAGS = -g3
 
-OBJS = main.o mini.l.o mini.y.o tac.o obj.o cfg.o constfold.o copyprop.o cse.o licm.o lsr.o loopreduce.o loopunroll.o optlog.o deadcode.o
+OBJS = main.o mini.l.o mini.y.o tac.o obj.o cfg.o constfold.o copyprop.o cse.o licm.o loopreduce.o loopunroll.o optlog.o deadcode.o
 
 all: mini asm machine
 
@@ -16,7 +16,7 @@ mini.l.c: mini.l
 mini.y.c mini.y.h: mini.y
 	yacc -d -o mini.y.c mini.y
 
-main.o: main.c mini.y.h tac.h obj.h cfg.h constfold.h copyprop.h cse.h licm.h lsr.h loopreduce.h loopunroll.h optlog.h deadcode.h
+main.o: main.c mini.y.h tac.h obj.h cfg.h constfold.h copyprop.h cse.h licm.h loopreduce.h loopunroll.h optlog.h deadcode.h
 	$(CC) $(CFLAGS) -c main.c -o $@
 
 mini.l.o: mini.l.c mini.y.h tac.h
@@ -45,9 +45,6 @@ cse.o: cse.cpp cse.h optlog.h tac.h
 
 licm.o: licm.cpp licm.h optlog.h tac.h cfg.h
 	$(CXX) $(CXXFLAGS) -c licm.cpp -o $@
-
-lsr.o: lsr.cpp lsr.h optlog.h tac.h
-	$(CXX) $(CXXFLAGS) -c lsr.cpp -o $@
 
 loopreduce.o: loopreduce.cpp loopreduce.h optlog.h tac.h
 	$(CXX) $(CXXFLAGS) -c loopreduce.cpp -o $@

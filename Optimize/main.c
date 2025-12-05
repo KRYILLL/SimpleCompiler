@@ -10,7 +10,6 @@
 #include "copyprop.h"
 #include "cse.h"
 #include "licm.h"
-#include "lsr.h"
 #include "loopreduce.h"
 #include "loopunroll.h"
 #include "optlog.h"
@@ -64,22 +63,20 @@ int main(int argc,   char *argv[])
 	copyprop_reset();
 	cse_reset();
 	licm_reset();
-	lsr_reset();
 	loopreduce_reset();
 	loopunroll_reset();
 	/* iterate local optimizations to a fixpoint (guarded to avoid infinite loops) */
 	for(int iter = 0; iter < 32; ++iter)
 	{
-		int folds = 0, copies = 0, eliminated = 0, hoisted = 0, reduced = 0, collapsed = 0, unrolled = 0, dead = 0;
+		int folds = 0, copies = 0, eliminated = 0, hoisted = 0, collapsed = 0, unrolled = 0, dead = 0;
 		folds = constfold_run();
 		copies = copyprop_run();
 		eliminated = cse_run();
 		hoisted = licm_run();
-		reduced = lsr_run();
 		collapsed = loopreduce_run();
 		unrolled = loopunroll_run();
 		dead = deadcode_run();
-		if(folds == 0 && copies == 0 && eliminated == 0 && hoisted == 0 && reduced == 0 && collapsed == 0 && unrolled == 0 && dead == 0)
+		if(folds == 0 && copies == 0 && eliminated == 0 && hoisted == 0 && collapsed == 0 && unrolled == 0 && dead == 0)
 		{
 			break;
 		}
