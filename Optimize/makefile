@@ -10,7 +10,7 @@ $(error Invalid OBJ_VARIANT '$(OBJ_VARIANT)'; choose one of: $(VALID_OBJ_VARIANT
 endif
 
 ifeq ($(OBJ_VARIANT),obj2)
-OBJ_SRC := ../obj2.c
+OBJ_SRC := obj2.c
 else
 OBJ_SRC := obj.c
 endif
