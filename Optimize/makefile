@@ -1,13 +1,27 @@
 CC = gcc
 CXX = g++
-CFLAGS = -g3
-CXXFLAGS = -g3
+CFLAGS = -g3 -I.
+CXXFLAGS = -g3 -I.
 
-OBJS = main.o mini.l.o mini.y.o tac.o obj.o cfg.o constfold.o copyprop.o cse.o licm.o loopreduce.o loopunroll.o optlog.o deadcode.o
+OBJ_VARIANT ?= obj
+VALID_OBJ_VARIANTS := obj obj2
+ifeq ($(filter $(OBJ_VARIANT),$(VALID_OBJ_VARIANTS)),)
+$(error Invalid OBJ_VARIANT '$(OBJ_VARIANT)'; choose one of: $(VALID_OBJ_VARIANTS))
+endif
 
-all: mini asm machine
+ifeq ($(OBJ_VARIANT),obj2)
+OBJ_SRC := ../obj2.c
+else
+OBJ_SRC := obj.c
+endif
+OBJ_OBJ := $(OBJ_VARIANT).o
+VARIANT_STAMP := .variant-$(OBJ_VARIANT)
 
-mini: mini.l.c mini.y.c $(OBJS)
+OBJS = main.o mini.l.o mini.y.o tac.o $(OBJ_OBJ) cfg.o constfold.o copyprop.o cse.o licm.o loopreduce.o loopunroll.o optlog.o deadcode.o
+
+all: mini-optimized asm machine
+
+mini: mini.l.c mini.y.c $(OBJS) $(VARIANT_STAMP)
 	$(CXX) $(CXXFLAGS) $(OBJS) -o $@
 
 mini.l.c: mini.l
@@ -28,8 +42,12 @@ mini.y.o: mini.y.c tac.h
 tac.o: tac.c tac.h
 	$(CC) $(CFLAGS) -c tac.c -o $@
 
-obj.o: obj.c obj.h tac.h constfold.h copyprop.h optlog.h deadcode.h
-	$(CC) $(CFLAGS) -c obj.c -o $@
+$(OBJ_OBJ): $(OBJ_SRC) obj.h tac.h constfold.h copyprop.h optlog.h deadcode.h
+	$(CC) $(CFLAGS) -c $(OBJ_SRC) -o $@
+
+$(VARIANT_STAMP):
+	@rm -f .variant-*
+	@touch $@
 
 cfg.o: cfg.cpp cfg.h tac.h
 	$(CXX) $(CXXFLAGS) -c cfg.cpp -o $@
@@ -67,9 +85,21 @@ machine: machine.c inst.h
 	gcc -g3 machine.c -o machine
 
 clean:
-	rm -fr *.l.* *.y.* *.s *.x *.o core mini asm machine
+	rm -fr *.l.* *.y.* *.s *.x *.o core mini asm machine .variant-*
 
 test:
 	./mini test.m; \
 	./asm test.s; \
 	./machine test.o
+
+.PHONY: mini-optimized mini-baseline optimized baseline
+
+mini-optimized:
+	$(MAKE) OBJ_VARIANT=obj mini
+
+mini-baseline:
+	$(MAKE) OBJ_VARIANT=obj2 mini
+
+optimized: mini-optimized
+
+baseline: mini-baseline

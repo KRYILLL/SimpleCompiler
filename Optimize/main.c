@@ -74,7 +74,7 @@ int main(int argc,   char *argv[])
 		eliminated = cse_run();
 		hoisted = licm_run();
 		collapsed = loopreduce_run();
-		unrolled = loopunroll_run();
+		//unrolled = loopunroll_run();
 		dead = deadcode_run();
 		if(folds == 0 && copies == 0 && eliminated == 0 && hoisted == 0 && collapsed == 0 && unrolled == 0 && dead == 0)
 		{
