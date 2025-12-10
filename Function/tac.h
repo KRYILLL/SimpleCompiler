@@ -61,7 +61,7 @@ typedef struct sym
 	struct sym *next;
 	void *etc;
 
-	/* 统一类型系统：首选读取 ty */
+	/* 统一类型系统托管类型信息 */
 	struct Type *ty;   /* 指向统一类型对象 */
 } SYM;
 

@@ -31,11 +31,12 @@ Type *type_ptr(Type *base)
     Type *t = (Type*)malloc(sizeof(Type));
     t->kind = TY_PTR;
     t->base = base;
-    t->size = 4;        /* 本机指针大小：与 SIZE_INT 一致 */
+    Type *int_type = type_int();
+    t->size = type_size(int_type);
     t->array_len = 0;
     t->fields = NULL;
     t->field_count = 0;
-    t->align = 4;
+    t->align = int_type->align ? int_type->align : t->size;
     return t;
 }
 

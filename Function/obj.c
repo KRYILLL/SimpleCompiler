@@ -13,6 +13,16 @@ int oof; /* offset of formal */
 int oon; /* offset of next frame */
 struct rdesc rdesc[R_NUM];
 
+static int size_of_int(void)
+{
+    return type_size(type_int());
+}
+
+static int size_of_char(void)
+{
+    return type_size(type_char());
+}
+
 void rdesc_clear(int r)    
 {
 	rdesc[r].var = NULL;
@@ -38,9 +48,10 @@ void asm_write_back(int r)
 {
 	if((rdesc[r].var!=NULL) && rdesc[r].mod)
 	{
+		const int char_size = size_of_char();
 		if(rdesc[r].var->scope==1) /* local var */
 		{
-			if (type_size(rdesc[r].var->ty) == SIZE_CHAR)
+			if (type_size(rdesc[r].var->ty) == char_size)
 				out_str(file_s, "	STC (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
 			else
 				out_str(file_s, "	STO (R%u+%u),R%u\n", R_BP, rdesc[r].var->offset, r);
@@ -48,7 +59,7 @@ void asm_write_back(int r)
 		else /* global var */
 		{
 			out_str(file_s, "	LOD R%u,STATIC\n", R_TP);
-			if (type_size(rdesc[r].var->ty) == SIZE_CHAR)
+			if (type_size(rdesc[r].var->ty) == char_size)
 				out_str(file_s, "	STC (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
 			else
 				out_str(file_s, "	STO (R%u+%u),R%u\n", R_TP, rdesc[r].var->offset, r);
@@ -65,19 +76,19 @@ void asm_load(int r, SYM *s)
 		if(rdesc[i].var==s)
 		{
 			/* load from the reg */
-			out_str(file_s, "	LOD R%u,R%u\n", r, i);
+			out_str(file_s, "\tLOD R%u,R%u\n", r, i);
 
 			/* update rdesc */
 			// rdesc_fill(r, s, rdesc[i].mod);
 			return;
 		}
 	}
-	
+
 	/* not in a reg */
 	switch(s->type)
 	{
 		case SYM_INT:
-		out_str(file_s, "	LOD R%u,%u\n", r, s->value);
+		out_str(file_s, "\tLOD R%u,%u\n", r, s->value);
 		break;
 
 		case SYM_CHAR:
@@ -85,33 +96,36 @@ void asm_load(int r, SYM *s)
 		break;
 
 		case SYM_VAR:
-		if(s->scope==1) /* local var */
 		{
-			if (type_size(s->ty) == SIZE_CHAR) {
-				if((s->offset)>=0) out_str(file_s, "	LDC R%u,(R%u+%d)\n", r, R_BP, s->offset);
-				else out_str(file_s, "	LDC R%u,(R%u-%d)\n", r, R_BP, -(s->offset));
-			} else {
-				if((s->offset)>=0) out_str(file_s, "	LOD R%u,(R%u+%d)\n", r, R_BP, s->offset);
-				else out_str(file_s, "	LOD R%u,(R%u-%d)\n", r, R_BP, -(s->offset));
+			const int char_size = size_of_char();
+			if(s->scope==1) /* local var */
+			{
+				if (type_size(s->ty) == char_size) {
+					if((s->offset)>=0) out_str(file_s, "\tLDC R%u,(R%u+%d)\n", r, R_BP, s->offset);
+					else out_str(file_s, "\tLDC R%u,(R%u-%d)\n", r, R_BP, -(s->offset));
+				} else {
+					if((s->offset)>=0) out_str(file_s, "\tLOD R%u,(R%u+%d)\n", r, R_BP, s->offset);
+					else out_str(file_s, "\tLOD R%u,(R%u-%d)\n", r, R_BP, -(s->offset));
+				}
 			}
-		}
-		else /* global var */
-		{
-			out_str(file_s, "	LOD R%u,STATIC\n", R_TP);
-			if (type_size(s->ty) == SIZE_CHAR)
-				out_str(file_s, "	LDC R%u,(R%u+%d)\n", r, R_TP, s->offset);
-			else
-				out_str(file_s, "	LOD R%u,(R%u+%d)\n", r, R_TP, s->offset);
+			else /* global var */
+			{
+				out_str(file_s, "\tLOD R%u,STATIC\n", R_TP);
+				if (type_size(s->ty) == char_size)
+					out_str(file_s, "\tLDC R%u,(R%u+%d)\n", r, R_TP, s->offset);
+				else
+					out_str(file_s, "\tLOD R%u,(R%u+%d)\n", r, R_TP, s->offset);
+			}
 		}
 		break;
 
 		case SYM_TEXT:
-		out_str(file_s, "	LOD R%u,L%u\n", r, s->label);
+		out_str(file_s, "\tLOD R%u,L%u\n", r, s->label);
 		break;
 	}
 
 	// rdesc_fill(r, s, UNMODIFIED);
-}   
+}
 
 int reg_alloc(SYM *s)
 {
@@ -416,37 +430,43 @@ void asm_code(TAC *c)
 		return;
 
 		case TAC_INPUT:
-		r=reg_alloc(c->a);
-		if (type_size(c->a->ty) == SIZE_CHAR) {
-			out_str(file_s, "\tITC\n");
-		} else {
-			out_str(file_s, "\tITI\n");
+		{
+			r = reg_alloc(c->a);
+			const int char_size = size_of_char();
+			if (type_size(c->a->ty) == char_size) {
+				out_str(file_s, "\tITC\n");
+			} else {
+				out_str(file_s, "\tITI\n");
+			}
+			out_str(file_s, "\tLOD R%u,R15\n", r);
+			rdesc[r].mod = MODIFIED;
+			asm_write_back(r);
+			return;
 		}
-		out_str(file_s, "\tLOD R%u,R15\n", r);
-		rdesc[r].mod = MODIFIED;
-		asm_write_back(r);
-		return;
 
 		case TAC_OUTPUT:
-		if(c->a->type == SYM_TEXT)
 		{
-			r = reg_alloc(c->a);
-			out_str(file_s, "\tLOD R15,R%u\n", r);
-			out_str(file_s, "\tOTS\n");
+			const int char_size = size_of_char();
+			if(c->a->type == SYM_TEXT)
+			{
+				r = reg_alloc(c->a);
+				out_str(file_s, "\tLOD R15,R%u\n", r);
+				out_str(file_s, "\tOTS\n");
+			}
+			else if (type_size(c->a->ty) == char_size)
+			{
+				r = reg_alloc(c->a);
+				out_str(file_s, "\tLOD R15,R%u\n", r);
+				out_str(file_s, "\tOTC\n");
+			}
+			else
+			{
+				r = reg_alloc(c->a);
+				out_str(file_s, "\tLOD R15,R%u\n", r);
+				out_str(file_s, "\tOTI\n");
+			}
+			return;
 		}
-		else if (type_size(c->a->ty) == SIZE_CHAR)
-		{
-			r = reg_alloc(c->a);
-			out_str(file_s, "\tLOD R15,R%u\n", r);
-			out_str(file_s, "\tOTC\n");
-		}
-		else
-		{
-			r = reg_alloc(c->a);
-			out_str(file_s, "\tLOD R15,R%u\n", r);
-			out_str(file_s, "\tOTI\n");
-		}
-		return;
 
 		case TAC_GOTO:
 		asm_cond("JMP", NULL, c->a->name);
@@ -465,11 +485,12 @@ void asm_code(TAC *c)
 		case TAC_ACTUAL:
 		r=reg_alloc(c->a);
 		{
-			int slot_size = SIZE_INT;
+			const int min_slot = size_of_int();
+			int slot_size = min_slot;
 			if(c->a && c->a->ty)
 			{
 				slot_size = type_size(c->a->ty);
-				if(slot_size < SIZE_INT) slot_size = SIZE_INT;
+				if(slot_size < min_slot) slot_size = min_slot;
 			}
 			out_str(file_s, "\tSTO (R2+%d),R%u\n", tof+oon, r);
 			oon += slot_size;
@@ -490,11 +511,12 @@ void asm_code(TAC *c)
 		case TAC_FORMAL:
 		c->a->scope=1; /* parameter is special local var */
 		{
-			int slot_size = SIZE_INT;
+			const int min_slot = size_of_int();
+			int slot_size = min_slot;
 			if(c->a && c->a->ty)
 			{
 				slot_size = type_size(c->a->ty);
-				if(slot_size < SIZE_INT) slot_size = SIZE_INT;
+				if(slot_size < min_slot) slot_size = min_slot;
 			}
 			c->a->offset=oof;
 			oof -= slot_size;
